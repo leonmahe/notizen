@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>meine notizen</title>
+<style>
+  :root {
+    --surface: #FBFAF8;
+    --raised: #FFFFFF;
+    --sidebg: #F4F2EE;
+    --ink: #1E2128;
+    --ink-soft: #7A7D85;
+    --ink-faint: #A9ABB2;
+    --rule: #E6E3DE;
+    --rule-strong: #D6D2CB;
+    --accent: #2E6E6A;
+    --accent-soft: #2E6E6A22;
+    --danger: #9B3B32;
+    --danger-soft: #9B3B3218;
+    --warn: #8A5A21;
+    --warn-soft: #C8912B26;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-util: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #14161A; --raised: #1B1E23; --sidebg: #191C21; --ink: #E8E6E2;
+      --ink-soft: #8E9199; --ink-faint: #61656D;
+      --rule: #272B32; --rule-strong: #363B44;
+      --accent: #5FA8A2; --accent-soft: #5FA8A22B;
+      --danger: #E08B80; --danger-soft: #E08B8020;
+      --warn: #E3B571; --warn-soft: #E3B57126;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: var(--font-body); background: var(--surface); color: var(--ink);
+    font-size: 17px; line-height: 1.5; -webkit-text-size-adjust: 100%;
+  }
+  button { font-family: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  button:focus-visible, .tx:focus-visible, .title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  #app { height: 100%; min-height: 480px; display: flex; flex-direction: column; }
+  .body { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
+  .main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+  /* ---------- sidebar ---------- */
+  .side {
+    flex: 0 0 254px; width: 254px; background: var(--sidebg);
+    border-right: 1px solid var(--rule);
+    display: flex; flex-direction: column; min-height: 0;
+    position: absolute; inset: 0 auto 0 0; z-index: 12;
+    transform: translateX(-101%); transition: transform .22s ease;
+  }
+  .side.open { transform: none; }
+  .scrim {
+    position: absolute; inset: 0; z-index: 11; background: rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none; transition: opacity .22s;
+  }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+
+  .sidehead {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 10px 8px 16px;
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .1em; color: var(--ink-faint);
+  }
+  .sidehead button { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; color: var(--ink-soft); }
+  .sidehead button:hover { background: var(--accent-soft); color: var(--accent); }
+
+  .pagelist { flex: 1 1 auto; overflow-y: auto; padding: 0 8px 6px; }
+  .prow {
+    display: flex; align-items: center; gap: 1px;
+    border-radius: 8px; margin-bottom: 1px;
+  }
+  .prow:hover { background: var(--rule); }
+  .prow.here { background: var(--accent-soft); }
+  .prow.here .plink { color: var(--accent); font-weight: 600; }
+  .pfold {
+    flex: 0 0 22px; width: 22px; height: 32px; font-size: 10px; color: var(--ink-faint);
+    border-radius: 6px; transition: transform .16s ease;
+  }
+  .pfold.shut { transform: rotate(-90deg); }
+  .pfold.none { visibility: hidden; }
+  .plink {
+    flex: 1 1 auto; min-width: 0; text-align: left; padding: 7px 4px;
+    font-size: 14.5px; color: var(--ink); line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pcount { flex: 0 0 auto; font-family: var(--font-util); font-size: 9.5px; color: var(--ink-faint); padding-right: 2px; }
+  .pdel {
+    flex: 0 0 26px; width: 26px; height: 30px; border-radius: 7px;
+    color: var(--ink-faint); font-size: 12px; opacity: 0;
+  }
+  .prow:hover .pdel, .prow.here .pdel { opacity: 1; }
+  .pdel:hover { background: var(--danger-soft); color: var(--danger); }
+  @media (hover: none) { .pdel { opacity: 1; } }
+
+  .newpage {
+    flex: 0 0 auto; margin: 4px 10px calc(12px + env(safe-area-inset-bottom));
+    padding: 11px 12px; border-radius: 9px; text-align: left;
+    font-size: 14px; color: var(--accent); background: var(--accent-soft);
+  }
+  .newpage:hover { background: var(--accent); color: var(--raised); }
+
+  /* ---------- header ---------- */
+  .head { flex: 0 0 auto; padding: 12px 18px 8px; }
+  .nav {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+    font-family: var(--font-util); font-size: 11px; letter-spacing: .06em;
+    color: var(--ink-soft); margin-bottom: 4px;
+  }
+  .burger {
+    flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
+    font-size: 15px; color: var(--ink-soft); margin-right: 5px;
+  }
+  .burger:hover { background: var(--accent-soft); color: var(--accent); }
+  .back {
+    display: inline-flex; align-items: center; height: 31px;
+    padding: 0 13px; margin-right: 4px; border-radius: 16px;
+    background: var(--accent-soft); color: var(--accent);
+    font-family: var(--font-util); font-size: 11px; letter-spacing: .06em;
+  }
+  .back:hover { background: var(--accent); color: var(--raised); }
+  .crumb { padding: 5px 2px; }
+  .crumb:hover { color: var(--accent); }
+  .sep { color: var(--ink-faint); }
+
+  .titlerow { display: flex; align-items: flex-start; gap: 7px; margin: 2px 0 4px; }
+  .zknob { flex: 0 0 auto; width: 25px; height: 33px; display: grid; place-items: center; }
+  .zbl { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }
+  .title {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 24px; font-weight: 620; letter-spacing: -.02em; line-height: 1.22;
+  }
+  .title.inpage { font-size: 19.5px; font-weight: 600; line-height: 1.38; letter-spacing: -.005em; padding-top: 4px; }
+  .title.inpage.done { color: var(--ink-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .title:empty::before { content: "ohne titel"; color: var(--ink-faint); }
+
+  .meta {
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .07em;
+    color: var(--ink-faint); display: flex; gap: 9px; align-items: center; flex-wrap: wrap;
+  }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-faint); transition: background .25s; flex: 0 0 auto; }
+  .dot.busy { background: var(--accent); }
+  .dot.bad { background: var(--warn); }
+  .prog {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .06em;
+    color: var(--ink-faint); padding: 3px 9px 3px 7px; border-radius: 20px;
+  }
+  .prog:hover { background: var(--accent-soft); color: var(--accent); }
+  .progbar {
+    display: inline-block; width: 34px; height: 4px; border-radius: 3px;
+    background: var(--rule-strong); overflow: hidden; flex: 0 0 auto;
+  }
+  .progbar i { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
+  .prog.on { background: var(--accent-soft); color: var(--accent); }
+  .helpbtn { color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px; font: inherit; }
+  .helpbtn:hover { color: var(--accent); }
+
+  .helppanel {
+    margin: 11px 0 0; padding: 13px 15px;
+    background: var(--raised); border: 1px solid var(--rule); border-radius: 11px;
+    font-size: 14px; line-height: 1.55; color: var(--ink);
+  }
+  .helppanel div + div { margin-top: 9px; }
+  .helppanel b { font-weight: 620; }
+  .helppanel .glyph {
+    display: inline-block; text-align: center; width: 21px; height: 21px; line-height: 21px;
+    border-radius: 6px; background: var(--accent-soft); color: var(--accent);
+    font-size: 11px; margin-right: 7px; vertical-align: -4px;
+  }
+
+  /* ---------- tree ---------- */
+  .scroll { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
+  .sheet { padding: 4px 18px 28px; }
+  .kids { margin-left: 13px; padding-left: 14px; border-left: 1px solid var(--rule); transition: border-color .18s; }
+  .kids:focus-within { border-left-color: var(--rule-strong); }
+  .kids.reveal { animation: reveal .22s ease both; }
+  @keyframes reveal { from { opacity: 0; transform: translateY(-5px); } }
+
+  .row { display: flex; align-items: flex-start; gap: 1px; padding: 1px 0; }
+  .ar {
+    width: 27px; flex: 0 0 27px; height: 28px; line-height: 28px; text-align: center;
+    color: var(--ink-faint); font-size: 12px; border-radius: 7px; visibility: hidden;
+    transition: transform .18s ease, background .14s, color .14s;
+  }
+  .node.has-kids > .row > .ar { visibility: visible; color: var(--ink-soft); }
+  .node.has-kids > .row > .ar:hover { background: var(--accent-soft); color: var(--accent); }
+  .node.shut > .row > .ar { transform: rotate(-90deg); color: var(--accent); }
+
+  .knob { width: 24px; flex: 0 0 24px; height: 28px; display: grid; place-items: center; }
+  .bl {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint);
+    box-shadow: 0 0 0 0 var(--accent-soft); transition: box-shadow .16s, background .16s;
+  }
+  .knob:hover .bl { background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }
+  .node.shut > .row > .knob .bl { background: var(--accent); box-shadow: 0 0 0 4.5px var(--accent-soft); }
+
+  .box {
+    width: 17px; height: 17px; border-radius: 4px; border: 1.5px solid var(--rule-strong);
+    display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1;
+    transition: background .14s, border-color .14s, color .14s;
+  }
+  .box:hover { border-color: var(--accent); }
+  .box.on { background: var(--accent); border-color: var(--accent); color: var(--raised); }
+
+  .tx {
+    flex: 1 1 auto; min-width: 0; padding: 3px 2px 3px 3px;
+    min-height: 28px; word-break: break-word; white-space: pre-wrap;
+  }
+  .tx:focus { outline: none; }
+  .node.done > .row > .tx { color: var(--ink-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .tx:empty:focus::before { content: "schreib etwas"; color: var(--ink-faint); }
+  .node.shut > .row { background: var(--accent-soft); border-radius: 9px; }
+  .badge {
+    align-self: center; flex: 0 0 auto; margin: 0 6px 0 8px;
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .04em;
+    color: var(--accent); background: var(--accent-soft);
+    padding: 4px 10px; border-radius: 20px; white-space: nowrap;
+  }
+  .badge:hover { background: var(--accent); color: var(--raised); }
+
+  .empty { padding: 12px 0 4px; }
+  .empty button {
+    width: 100%; text-align: left; font-size: 14.5px;
+    color: var(--accent); background: var(--accent-soft); padding: 12px 15px; border-radius: 10px;
+  }
+  .empty button:hover { background: var(--accent); color: var(--raised); }
+
+  /* ---------- suche ---------- */
+  .searchwrap {
+    position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.34);
+    padding: 36px 14px; display: flex; justify-content: center; align-items: flex-start;
+  }
+  .searchbox {
+    width: 100%; max-width: 520px; max-height: 100%;
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--raised); border: 1px solid var(--rule); border-radius: 13px;
+    box-shadow: 0 22px 50px -18px rgba(0,0,0,.45);
+  }
+  .sinput {
+    flex: 0 0 auto; border: 0; outline: none; font: inherit; font-size: 16.5px;
+    padding: 15px 17px; background: none; color: var(--ink);
+    border-bottom: 1px solid var(--rule);
+  }
+  .sresults { flex: 1 1 auto; overflow-y: auto; padding: 5px; }
+  .shint {
+    font-family: var(--font-util); font-size: 10px; letter-spacing: .07em;
+    color: var(--ink-faint); padding: 8px 12px;
+  }
+  .sres { display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 8px; }
+  .sres:hover, .sres.on { background: var(--accent-soft); }
+  .stext { display: block; font-size: 14.5px; line-height: 1.4; color: var(--ink); }
+  .stext mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; font-weight: 650; }
+  .spath {
+    display: block; font-family: var(--font-util); font-size: 9.5px;
+    letter-spacing: .05em; color: var(--ink-faint); margin-top: 3px;
+  }
+
+  /* ---------- slash ---------- */
+  .slash {
+    flex: 0 0 auto; background: var(--raised); border-top: 1px solid var(--rule);
+    max-height: 42vh; overflow-y: auto; padding: 4px;
+  }
+  .slashhead {
+    font-family: var(--font-util); font-size: 9.5px; letter-spacing: .09em;
+    color: var(--ink-faint); padding: 7px 11px 5px;
+  }
+  .sitem { display: block; width: 100%; text-align: left; padding: 11px 12px; border-radius: 8px; font-size: 14.5px; }
+  .sitem.on, .sitem:hover { background: var(--accent-soft); color: var(--accent); }
+
+  /* ---------- bar ---------- */
+  .bar {
+    flex: 0 0 auto; display: flex; align-items: stretch; gap: 3px;
+    padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
+    background: var(--raised); border-top: 1px solid var(--rule);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .bar::-webkit-scrollbar { display: none; }
+  .bar button {
+    flex: 0 0 auto; min-width: 44px; padding: 4px 7px; border-radius: 9px; color: var(--ink-soft);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  }
+  .bar button:hover { background: var(--accent-soft); color: var(--accent); }
+  .bar .ic { font-size: 15px; line-height: 1.15; }
+  .bar .cap { font-family: var(--font-util); font-size: 8.5px; letter-spacing: .05em; }
+  .bar .gap { flex: 1 1 auto; }
+
+  .sheetmenu {
+    position: fixed; right: 12px; bottom: 66px; z-index: 25;
+    background: var(--raised); border: 1px solid var(--rule);
+    border-radius: 11px; padding: 5px; min-width: 246px;
+    box-shadow: 0 14px 34px -12px rgba(0,0,0,.34);
+  }
+  .sheetmenu button { display: block; width: 100%; text-align: left; padding: 10px 11px; border-radius: 7px; font-size: 14.5px; }
+  .sheetmenu button:hover { background: var(--accent-soft); color: var(--accent); }
+  .sheetmenu hr { border: 0; border-top: 1px solid var(--rule); margin: 5px 2px; }
+  .sheetmenu .hint { font-family: var(--font-util); font-size: 10px; color: var(--ink-faint); padding: 7px 11px; letter-spacing: .04em; line-height: 1.5; }
+
+  .askwrap { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.32); padding: 20px; }
+  .ask {
+    background: var(--raised); border: 1px solid var(--rule); border-radius: 13px;
+    padding: 18px 18px 14px; max-width: 340px; width: 100%;
+    box-shadow: 0 20px 48px -16px rgba(0,0,0,.4);
+  }
+  .ask p { margin: 0 0 15px; font-size: 15px; line-height: 1.5; }
+  .ask .btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .ask .btns button { padding: 10px 15px; border-radius: 9px; font-size: 14.5px; }
+  .ask .no { color: var(--ink-soft); }
+  .ask .no:hover { background: var(--rule); }
+  .ask .yes { color: var(--danger); background: var(--danger-soft); font-weight: 600; }
+  .ask .yes:hover { background: var(--danger); color: var(--raised); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%);
+    max-width: 80vw; text-align: center;
+    background: var(--ink); color: var(--surface);
+    font-family: var(--font-util); font-size: 11px; letter-spacing: .04em;
+    padding: 9px 15px; border-radius: 20px; z-index: 30;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .toast.show { opacity: .96; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ar, .side, .scrim, .pfold, .kids.reveal, .toast { transition: none; animation: none; }
+  }
+  @media (min-width: 900px) {
+    .side { position: static; transform: none; display: none; }
+    .side.open { display: flex; }
+    .scrim { display: none; }
+    .head, .sheet { max-width: 800px; }
+    .head { padding: 22px 40px 8px; }
+    .sheet { padding: 4px 40px 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app"><div class="head">notizen werden geladen&nbsp;&hellip;</div></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'notizen-baum-v4';
+  var G = {
+    fold: '\u25BE', check: '\u2713', out: '\u21E4', into: '\u21E5', todo: '\u2610',
+    more: '\u22EF', sep: '\u203A', burger: '\u2630', back: '\u2190', undo: '\u21BA',
+    del: '\u2715', close: '\u00D7', up: '\u2191', down: '\u2193', find: '\u2315',
+    allshut: '\u25B4', allopen: '\u25BE'
+  };
+
+  var S = { nodes: {}, roots: [], zoom: null, navOpen: {}, hideDone: false };
+  var undoStack = [], saveTimer = null, wantFocus = null, flashOpen = null;
+  var sideOpen = false, slash = null, store = null, dirty = 0;
+  var app = document.getElementById('app');
+
+  function uid() { return 'n' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3); }
+  function N(id) { return S.nodes[id]; }
+  function sibs(n) { return n.parent ? N(n.parent).children : S.roots; }
+  function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function plural(n) { return n + (n === 1 ? ' zeile' : ' zeilen'); }
+  function cut(s, n) { s = s || 'ohne titel'; return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
+  function count(id) { var c = 0; N(id).children.forEach(function (k) { c += 1 + count(k); }); return c; }
+
+  /* ---------------- storage ---------------- */
+  function snap() {
+    undoStack.push(JSON.stringify({ nodes: S.nodes, roots: S.roots, zoom: S.zoom }));
+    if (undoStack.length > 40) undoStack.shift();
+  }
+  function payload() {
+    return { v: 5, nodes: S.nodes, roots: S.roots, zoom: S.zoom, navOpen: S.navOpen, hideDone: S.hideDone };
+  }
+  function scheduleSave() {
+    dirty++;
+    mark('busy', 'speichert \u2026');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 450);
+  }
+  async function save() {
+    try {
+      await store.set(KEY, JSON.stringify(payload()));
+      dirty = 0;
+      mark('', store.kind === 'local' ? 'gespeichert \u00b7 auf dem gerät' : 'gespeichert');
+    } catch (e) {
+      mark('bad', 'nichts wird gespeichert');
+      nudge();
+    }
+  }
+  function nudge() {
+    if (dirty < 25 || dirty % 25) return;
+    toast('seit ' + dirty + ' änderungen ohne sicherung \u2014 ' + G.more + ' > sicherung herunterladen');
+  }
+  function mark(cls, label) {
+    var d = app.querySelector('.dot'), l = app.querySelector('.savelbl');
+    if (d) d.className = 'dot' + (cls ? ' ' + cls : '');
+    if (l) l.textContent = label;
+  }
+
+  /* speicherort wählen: claude \u2192 browser des geräts \u2192 nur arbeitsspeicher */
+  function pickStore() {
+    if (window.storage) {
+      return {
+        kind: 'claude',
+        get: function (k) { return window.storage.get(k).then(function (r) { return r && r.value ? r.value : null; }); },
+        set: function (k, v) { return window.storage.set(k, v); }
+      };
+    }
+    try {
+      var probe = '__probe' + Date.now();
+      window.localStorage.setItem(probe, '1');
+      window.localStorage.removeItem(probe);
+      return {
+        kind: 'local',
+        get: function (k) { return Promise.resolve(window.localStorage.getItem(k)); },
+        set: function (k, v) { window.localStorage.setItem(k, v); return Promise.resolve(); }
+      };
+    } catch (e) { /* gesperrt oder nicht vorhanden */ }
+    return {
+      kind: 'none',
+      get: function () { return Promise.resolve(null); },
+      set: function () { return Promise.reject(new Error('kein speicher')); }
+    };
+  }
+
+  /* ---------------- seed ---------------- */
+  function seed() {
+    var mk = function (text, parent, opts) {
+      var n = Object.assign({ id: uid(), text: text, parent: parent, children: [], todo: false, done: false, collapsed: false }, opts || {});
+      S.nodes[n.id] = n;
+      (parent ? N(parent).children : S.roots).push(n.id);
+      return n.id;
+    };
+    var a = mk('erste schritte', null);
+    mk('tipp in eine zeile und schreib los, enter macht die nächste', a);
+    mk('die knöpfe ' + G.out + ' und ' + G.into + ' unten rücken eine zeile aus und ein', a);
+    var sub = mk('eingerückte zeilen kann man zuklappen', a);
+    mk('diese hier steckt darin', sub);
+    mk('und diese auch', sub);
+    var b = mk('einkaufen', null);
+    mk('haferflocken', b, { todo: true });
+    mk('kaffee', b, { todo: true, done: true });
+    mk('notizen', null);
+  }
+
+  /* ---------------- boot ---------------- */
+  async function boot() {
+    store = pickStore();
+    var loaded = false;
+    try {
+      var raw = await store.get(KEY);
+      var d = raw ? JSON.parse(raw) : null;
+      if (d && d.nodes && d.roots && d.roots.length) {
+        S.nodes = d.nodes; S.roots = d.roots;
+        S.navOpen = d.navOpen || {};
+        S.hideDone = !!d.hideDone;
+        S.zoom = d.zoom && d.nodes[d.zoom] ? d.zoom : null;
+        loaded = true;
+      }
+    } catch (e) { /* nichts brauchbares gespeichert */ }
+    if (!loaded) seed();
+    sideOpen = window.matchMedia('(min-width: 900px)').matches;
+    shell();
+    render();
+
+    if (store.kind === 'claude') mark('', 'gespeichert');
+    else if (store.kind === 'local') {
+      mark('', 'gespeichert \u00b7 auf dem gerät');
+      if (!loaded) setTimeout(function () { toast('speichert automatisch auf diesem gerät'); }, 700);
+    } else {
+      mark('bad', 'nichts wird gespeichert');
+      setTimeout(function () { toast('achtung: hier wird nichts gespeichert'); }, 700);
+    }
+
+    window.addEventListener('beforeunload', function (e) {
+      if (store.kind === 'none' && dirty > 0) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
+  }
+
+  /* ---------------- shell ---------------- */
+  function shell() {
+    app.innerHTML =
+      '<div class="body">' +
+        '<div class="side">' +
+          '<div class="sidehead"><span>seiten</span><button data-act="hide" title="menü zuklappen">' + G.close + '</button></div>' +
+          '<div class="pagelist"></div>' +
+          '<button class="newpage" data-act="newpage">+ neue seite</button>' +
+        '</div>' +
+        '<div class="scrim" data-act="hide"></div>' +
+        '<div class="main">' +
+          '<div class="head">' +
+            '<div class="nav"></div>' +
+            '<div class="titlerow"></div>' +
+            '<div class="meta"><span class="dot"></span><span class="savelbl">gespeichert</span>' +
+              '<span class="count"></span>' +
+              '<button class="prog" data-act="hidedone"></button>' +
+              '<button class="helpbtn" data-act="help">was kann das hier?</button></div>' +
+            '<div class="helpwrap"></div>' +
+          '</div>' +
+          '<div class="scroll"><div class="sheet"></div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="bar">' +
+        btn('out', G.out, 'aus') + btn('in', G.into, 'ein') +
+        btn('up', G.up, 'rauf') + btn('down', G.down, 'runter') +
+        btn('todo', G.todo, 'to-do') + btn('foldall', G.fold, 'alles zu') +
+        btn('undo', G.undo, 'zurück') + btn('menu', G.more, 'mehr') +
+      '</div>' +
+      '<div class="toast"></div>';
+    wire();
+  }
+  function btn(act, ic, cap) {
+    return '<button data-act="' + act + '"><span class="ic">' + ic + '</span><span class="cap">' + cap + '</span></button>';
+  }
+  function toast(msg) {
+    var t = app.querySelector('.toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+
+  /* ---------------- sidebar ---------------- */
+  function setSide(open) {
+    sideOpen = open;
+    app.querySelector('.side').classList.toggle('open', open);
+    app.querySelector('.scrim').classList.toggle('on', open && !window.matchMedia('(min-width: 900px)').matches);
+  }
+  function subPages(id) {
+    return N(id).children.filter(function (k) { return N(k).children.length; });
+  }
+  function renderSide() {
+    var out = '<div class="prow' + (S.zoom ? '' : ' here') + '" data-page="root">' +
+      '<span class="pfold none"></span>' +
+      '<button class="plink" data-page="root">alle notizen</button>' +
+      '<span class="pcount">' + S.roots.length + '</span>' +
+      '<span class="pdel" style="visibility:hidden"></span></div>';
+
+    (function walk(ids, lvl) {
+      ids.forEach(function (id) {
+        var n = N(id), subs = subPages(id), open = !!S.navOpen[id];
+        out += '<div class="prow' + (S.zoom === id ? ' here' : '') + '" data-page="' + id + '" style="padding-left:' + (lvl * 13) + 'px">' +
+          (subs.length
+            ? '<button class="pfold' + (open ? '' : ' shut') + '" data-pf="' + id + '" title="unterseiten">' + G.fold + '</button>'
+            : '<span class="pfold none"></span>') +
+          '<button class="plink" data-page="' + id + '">' + esc(cut(n.text, 26)) + '</button>' +
+          (n.children.length ? '<span class="pcount">' + count(id) + '</span>' : '') +
+          '<button class="pdel" data-pd="' + id + '" title="seite löschen">' + G.del + '</button>' +
+          '</div>';
+        if (open && subs.length) walk(subs, lvl + 1);
+      });
+    })(S.roots, 0);
+
+    app.querySelector('.pagelist').innerHTML = out;
+  }
+
+  /* ---------------- render ---------------- */
+  function render() {
+    var sheet = app.querySelector('.sheet');
+    var zn = S.zoom ? N(S.zoom) : null;
+    var list = zn ? zn.children : S.roots;
+
+    if (!list.length && !zn) { wantFocus = { id: addNode('', null, 0), off: 0 }; list = S.roots; }
+    if (!list.length) {
+      sheet.innerHTML = '<div class="empty"><button data-empty="1">hier ist noch nichts \u2014 erste zeile schreiben</button></div>';
+    } else {
+      var inner = list.map(branch).join('');
+      sheet.innerHTML = inner.trim()
+        ? (zn ? '<div class="kids">' + inner + '</div>' : inner)
+        : '<div class="empty"><button data-act="hidedone">alles hier ist erledigt und ausgeblendet \u2014 wieder zeigen</button></div>';
+    }
+
+    var nav = app.querySelector('.nav');
+    var html = '<button class="burger" data-act="side" title="seiten">' + G.burger + '</button>' +
+      '<button class="burger" data-act="find" title="suchen">' + G.find + '</button>';
+    if (zn) {
+      var path = [], p = zn.parent;
+      while (p) { path.unshift(p); p = N(p).parent; }
+      html += '<button class="back" data-crumb="' + (zn.parent || 'root') + '">' +
+        G.back + ' zurück zu ' + esc(cut(zn.parent ? N(zn.parent).text : 'alle notizen', 18)) + '</button>';
+      if (path.length) {
+        html += '<button class="crumb" data-crumb="root">alle notizen</button>' +
+          path.map(function (id) {
+            return '<span class="sep">' + G.sep + '</span><button class="crumb" data-crumb="' + id + '">' + esc(cut(N(id).text, 15)) + '</button>';
+          }).join('');
+      }
+    }
+    nav.innerHTML = html;
+
+    var tr = app.querySelector('.titlerow');
+    if (!zn) {
+      tr.innerHTML = '<div class="title" spellcheck="false">alle notizen</div>';
+    } else {
+      var knob = zn.todo
+        ? '<button class="box' + (zn.done ? ' on' : '') + '" data-zk="check" title="abhaken">' + G.check + '</button>'
+        : '<span class="zbl"></span>';
+      tr.innerHTML = '<span class="zknob">' + knob + '</span>' +
+        '<div class="title inpage' + (zn.done ? ' done' : '') + '" contenteditable="plaintext-only" spellcheck="false">' + esc(zn.text) + '</div>';
+    }
+
+    app.querySelector('.count').textContent = zn
+      ? plural(count(S.zoom)) + ' darin'
+      : S.roots.length + (S.roots.length === 1 ? ' seite' : ' seiten') + ', ' + plural(Object.keys(S.nodes).length);
+
+    var pr = progress(), pb = app.querySelector('.prog');
+    if (!pr.total) pb.style.display = 'none';
+    else {
+      pb.style.display = '';
+      pb.innerHTML = '<span class="progbar"><i style="width:' + Math.round(pr.done / pr.total * 100) + '%"></i></span>' +
+        pr.done + '/' + pr.total + ' erledigt' + (S.hideDone ? ' \u00b7 versteckt' : '');
+      pb.title = S.hideDone ? 'erledigte wieder zeigen' : 'erledigte ausblenden';
+      pb.classList.toggle('on', S.hideDone);
+    }
+
+    var anyOpen = false;
+    eachInView(function (x) { if (x.children.length && !x.collapsed) anyOpen = true; });
+    var fa = app.querySelector('[data-act="foldall"]');
+    if (fa) {
+      fa.querySelector('.ic').textContent = anyOpen ? G.allshut : G.allopen;
+      fa.querySelector('.cap').textContent = anyOpen ? 'alles zu' : 'alles auf';
+    }
+
+    renderSide();
+    setSide(sideOpen);
+
+    if (wantFocus) { focus(wantFocus.id, wantFocus.off); wantFocus = null; }
+    flashOpen = null;
+  }
+
+  function branch(id) {
+    var n = N(id); if (!n) return '';
+    if (S.hideDone && n.todo && n.done && !n.children.length) return '';
+    var kids = n.children.length;
+    var cls = 'node' + (kids ? ' has-kids' : '') + (n.collapsed && kids ? ' shut' : '') + (n.done ? ' done' : '');
+    var knob = n.todo
+      ? '<button class="box' + (n.done ? ' on' : '') + '" data-k="check" title="abhaken">' + G.check + '</button>'
+      : '<span class="bl"></span>';
+    var badge = '';
+    if (n.collapsed && kids) badge = '<button class="badge" data-k="open">' + plural(count(id)) + ' versteckt</button>';
+    var body = (!n.collapsed && kids)
+      ? '<div class="kids' + (flashOpen === id ? ' reveal' : '') + '">' + n.children.map(branch).join('') + '</div>'
+      : '';
+    return '<div class="' + cls + '" data-id="' + id + '">' +
+        '<div class="row">' +
+          '<button class="ar" data-k="fold" title="zuklappen">' + G.fold + '</button>' +
+          '<button class="knob" data-k="knob" title="hineingehen">' + knob + '</button>' +
+          '<div class="tx" contenteditable="plaintext-only" spellcheck="false">' + esc(n.text) + '</div>' +
+          badge +
+        '</div>' + body +
+      '</div>';
+  }
+
+  /* ---------------- caret ---------------- */
+  function caretOff(el) {
+    var s = window.getSelection();
+    if (!s.rangeCount) return 0;
+    var r = s.getRangeAt(0).cloneRange();
+    r.selectNodeContents(el);
+    try { r.setEnd(s.getRangeAt(0).endContainer, s.getRangeAt(0).endOffset); } catch (e) { return 0; }
+    return r.toString().length;
+  }
+  function atStart(el) { var s = window.getSelection(); return s.isCollapsed && caretOff(el) === 0; }
+  function focus(id, off) {
+    var el = app.querySelector('.node[data-id="' + id + '"] > .row > .tx');
+    if (!el) return;
+    el.focus();
+    var tn = el.firstChild, r = document.createRange();
+    if (tn && tn.nodeType === 3) r.setStart(tn, Math.max(0, Math.min(off, tn.length)));
+    else r.setStart(el, 0);
+    r.collapse(true);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    var row = el.closest('.row'); if (row) row.scrollIntoView({ block: 'nearest' });
+  }
+  function rows() { return Array.prototype.slice.call(app.querySelectorAll('.sheet .tx')); }
+  function idOf(el) { return el.closest('.node').dataset.id; }
+  function focusedRow() { var a = document.activeElement; return a && a.closest ? a.closest('.tx') : null; }
+
+  /* ---------------- structure ---------------- */
+  function addNode(text, parent, index, opts) {
+    var n = Object.assign({ id: uid(), text: text || '', parent: parent || null, children: [], todo: false, done: false, collapsed: false }, opts || {});
+    S.nodes[n.id] = n;
+    var arr = parent ? N(parent).children : S.roots;
+    arr.splice(index == null ? arr.length : index, 0, n.id);
+    return n.id;
+  }
+  function detach(n) { var arr = sibs(n), i = arr.indexOf(n.id); if (i > -1) arr.splice(i, 1); }
+  function insertAfterNode(n, text, opts) {
+    if (n.children.length && !n.collapsed) return addNode(text, n.id, 0, opts);
+    var arr = sibs(n);
+    return addNode(text, n.parent, arr.indexOf(n.id) + 1, opts);
+  }
+  function indent(id) {
+    var n = N(id), arr = sibs(n), i = arr.indexOf(id);
+    if (i <= 0) { toast('ganz oben \u2014 keine zeile darüber, unter die sie passen könnte'); return false; }
+    var target = N(arr[i - 1]);
+    snap(); detach(n);
+    target.collapsed = false;
+    target.children.push(id); n.parent = target.id;
+    return true;
+  }
+  function outdent(id) {
+    var n = N(id);
+    if (!n.parent || n.parent === S.zoom) { toast('diese zeile ist schon ganz links'); return false; }
+    var p = N(n.parent), gp = p.parent, arr = gp ? N(gp).children : S.roots;
+    snap(); detach(n);
+    arr.splice(arr.indexOf(p.id) + 1, 0, id); n.parent = gp;
+    return true;
+  }
+  function moveNode(id, dir) {
+    var n = N(id), arr = sibs(n), i = arr.indexOf(id), j = i + dir;
+    if (j < 0 || j >= arr.length) {
+      toast(dir < 0
+        ? 'schon ganz oben auf dieser ebene \u2014 mit ' + G.out + ' kommt sie eine ebene höher'
+        : 'schon ganz unten auf dieser ebene');
+      return false;
+    }
+    snap();
+    arr.splice(i, 1); arr.splice(j, 0, id);
+    return true;
+  }
+  function setFold(n, shut) {
+    if (!n.children.length) { toast('unter dieser zeile steht nichts \u2014 rück erst eine zeile darunter ein'); return; }
+    var hid = count(n.id);
+    n.collapsed = shut;
+    if (!shut) flashOpen = n.id;
+    render(); scheduleSave();
+    toast(shut ? 'zugeklappt \u2014 ' + plural(hid) + ' versteckt' : 'aufgeklappt');
+  }
+  function mergeUp(el) {
+    var all = rows(), i = all.indexOf(el);
+    if (i <= 0) return;
+    var prev = N(idOf(all[i - 1])), n = N(idOf(el));
+    if (prev.collapsed && prev.children.length) { setFold(prev, false); focus(prev.id, prev.text.length); return; }
+    snap();
+    var at = prev.text.length;
+    prev.text += n.text;
+    n.children.slice().forEach(function (k) { N(k).parent = prev.id; prev.children.push(k); });
+    n.children = [];
+    detach(n); delete S.nodes[n.id];
+    render(); focus(prev.id, at); scheduleSave();
+  }
+  function removeBranch(id) {
+    var n = N(id); if (!n) return;
+    n.children.slice().forEach(removeBranch);
+    detach(n); delete S.nodes[id]; delete S.navOpen[id];
+  }
+  function isInside(id, ancestor) {
+    var p = id;
+    while (p) { if (p === ancestor) return true; p = N(p) ? N(p).parent : null; }
+    return false;
+  }
+
+  function eachInView(fn) {
+    var list = S.zoom ? N(S.zoom).children : S.roots;
+    (function walk(ids) {
+      ids.forEach(function (id) { if (N(id)) { fn(N(id)); walk(N(id).children); } });
+    })(list);
+  }
+  function progress() {
+    var total = 0, done = 0;
+    eachInView(function (n) { if (n.todo) { total++; if (n.done) done++; } });
+    return { total: total, done: done };
+  }
+  function foldAll() {
+    var anyOpen = false, n = 0;
+    eachInView(function (x) { if (x.children.length) { n++; if (!x.collapsed) anyOpen = true; } });
+    if (!n) { toast('hier gibt es nichts zum zuklappen'); return; }
+    eachInView(function (x) { if (x.children.length) x.collapsed = anyOpen; });
+    render(); scheduleSave();
+    toast(anyOpen ? 'alles zugeklappt' : 'alles aufgeklappt');
+  }
+  function purgeDone() {
+    var ids = [];
+    eachInView(function (n) { if (n.todo && n.done) ids.push(n.id); });
+    ids = ids.filter(function (id) {
+      return !ids.some(function (o) { return o !== id && isInside(N(id).parent, o); });
+    });
+    if (!ids.length) { toast('hier ist nichts erledigt'); return; }
+    var withKids = ids.filter(function (id) { return N(id).children.length; }).length;
+    var where = S.zoom ? 'auf dieser seite' : 'in allen seiten';
+    ask(ids.length + (ids.length === 1 ? ' erledigte zeile ' : ' erledigte zeilen ') + where + ' löschen?' +
+        (withKids ? ' bei ' + withKids + ' davon hängen unterzeilen dran, die mitgelöscht werden.' : ''),
+      'löschen', function () {
+        snap();
+        ids.forEach(removeBranch);
+        if (S.zoom && !S.nodes[S.zoom]) S.zoom = null;
+        render(); scheduleSave();
+        toast(ids.length + ' erledigte gelöscht \u2014 mit ' + G.undo + ' zurückholbar');
+      });
+  }
+  function setHideDone(v) {
+    S.hideDone = v;
+    render(); scheduleSave();
+    toast(v ? 'erledigte ausgeblendet' : 'erledigte wieder sichtbar');
+  }
+
+  /* ---------------- suche ---------------- */
+  function pathOf(id) {
+    var out = [], p = N(id).parent;
+    while (p) { out.unshift(cut(N(p).text, 18)); p = N(p).parent; }
+    return out.length ? out.join(' ' + G.sep + ' ') : 'oberste ebene';
+  }
+  function openSearch() {
+    if (document.querySelector('.searchwrap')) return;
+    closeSlash();
+    var w = document.createElement('div');
+    w.className = 'searchwrap';
+    w.innerHTML = '<div class="searchbox">' +
+      '<input class="sinput" type="text" placeholder="in allen seiten suchen \u2026" autocomplete="off" spellcheck="false">' +
+      '<div class="sresults"></div></div>';
+    document.body.appendChild(w);
+    var inp = w.querySelector('.sinput');
+    results('');
+    inp.addEventListener('input', function () { results(inp.value); });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeSearch(); return; }
+      var list = Array.prototype.slice.call(w.querySelectorAll('.sres'));
+      if (!list.length) return;
+      var cur = list.findIndex(function (b) { return b.classList.contains('on'); });
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        var next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+        if (cur > -1) list[cur].classList.remove('on');
+        list[next < 0 ? 0 : next].classList.add('on');
+        list[next < 0 ? 0 : next].scrollIntoView({ block: 'nearest' });
+      }
+      if (e.key === 'Enter') { e.preventDefault(); gotoNode((list[cur > -1 ? cur : 0]).dataset.go); }
+    });
+    w.addEventListener('click', function (e) {
+      if (e.target === w) { closeSearch(); return; }
+      var r = e.target.closest('[data-go]');
+      if (r) gotoNode(r.dataset.go);
+    });
+    setTimeout(function () { inp.focus(); }, 30);
+  }
+  function closeSearch() { var w = document.querySelector('.searchwrap'); if (w) w.remove(); }
+
+  function results(q) {
+    var box = document.querySelector('.sresults'); if (!box) return;
+    q = (q || '').trim().toLowerCase();
+    if (!q) { box.innerHTML = '<div class="shint">tipp los \u2014 gesucht wird in allen seiten</div>'; return; }
+    var hits = [];
+    Object.keys(S.nodes).forEach(function (id) {
+      var t = N(id).text || '', i = t.toLowerCase().indexOf(q);
+      if (i > -1) hits.push({ id: id, i: i, t: t });
+    });
+    if (!hits.length) { box.innerHTML = '<div class="shint">nichts gefunden</div>'; return; }
+    hits.sort(function (a, b) { return a.i - b.i || a.t.length - b.t.length; });
+    box.innerHTML = '<div class="shint">' + hits.length + ' treffer</div>' +
+      hits.slice(0, 40).map(function (h, k) {
+        var pre = esc(h.t.slice(0, h.i)),
+            mid = esc(h.t.slice(h.i, h.i + q.length)),
+            post = esc(h.t.slice(h.i + q.length));
+        return '<button class="sres' + (k === 0 ? ' on' : '') + '" data-go="' + h.id + '">' +
+          '<span class="stext">' + pre + '<mark>' + mid + '</mark>' + post + '</span>' +
+          '<span class="spath">' + esc(pathOf(h.id)) + '</span></button>';
+      }).join('');
+  }
+
+  function gotoNode(id) {
+    if (!N(id)) return;
+    closeSearch();
+    var chain = [], p = N(id).parent;
+    while (p) { chain.unshift(p); p = N(p).parent; }
+    chain.forEach(function (a) { N(a).collapsed = false; });
+    S.zoom = chain.length ? chain[0] : null;
+    if (!window.matchMedia('(min-width: 900px)').matches) sideOpen = false;
+    render(); scheduleSave();
+    focus(id, N(id).text.length);
+  }
+
+  /* ---------------- slash-menü ---------------- */
+  var SLASH = [
+    { label: function (n) { return n.todo ? 'zurück in normalen text' : 'to-do mit kästchen'; },
+      run: function (n) { snap(); n.todo = !n.todo; if (!n.todo) n.done = false; } },
+    { label: function () { return 'einrücken'; }, run: function (n) { indent(n.id); } },
+    { label: function () { return 'ausrücken'; }, run: function (n) { outdent(n.id); } },
+    { label: function () { return 'nach oben schieben'; }, run: function (n) { moveNode(n.id, -1); } },
+    { label: function () { return 'nach unten schieben'; }, run: function (n) { moveNode(n.id, 1); } },
+    { label: function (n) { return n.collapsed ? 'aufklappen' : 'zuklappen'; },
+      show: function (n) { return n.children.length > 0; },
+      run: function (n) { n.collapsed = !n.collapsed; } },
+    { label: function () { return 'als seite öffnen'; }, run: function (n) { S.zoom = n.id; } },
+    { label: function () { return 'zeile löschen'; }, run: function (n) { snap(); removeBranch(n.id); } }
+  ];
+
+  function slashItems() {
+    var n = slash && N(slash.id); if (!n) return [];
+    return SLASH.filter(function (it) {
+      if (it.show && !it.show(n)) return false;
+      if (!slash.q) return true;
+      return it.label(n).toLowerCase().indexOf(slash.q) > -1;
+    });
+  }
+  function closeSlash() { slash = null; var b = app.querySelector('.slash'); if (b) b.remove(); }
+  function renderSlash() {
+    var items = slashItems();
+    if (!items.length) { closeSlash(); return; }
+    if (slash.sel >= items.length) slash.sel = 0;
+    var box = app.querySelector('.slash');
+    if (!box) {
+      box = document.createElement('div'); box.className = 'slash';
+      app.querySelector('.bar').insertAdjacentElement('beforebegin', box);
+      box.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      box.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-si]');
+        if (b) runSlash(parseInt(b.dataset.si, 10));
+      });
+    }
+    var n = N(slash.id);
+    box.innerHTML = '<div class="slashhead">zeile ändern' + (slash.q ? ' \u00b7 ' + esc(slash.q) : '') + '</div>' +
+      items.map(function (it, i) {
+        return '<button class="sitem' + (i === slash.sel ? ' on' : '') + '" data-si="' + i + '">' + esc(it.label(n)) + '</button>';
+      }).join('');
+  }
+  function runSlash(i) {
+    if (!slash) return;
+    var it = slashItems()[i]; if (!it) return;
+    var n = N(slash.id), start = slash.start;
+    var el = app.querySelector('.node[data-id="' + n.id + '"] > .row > .tx');
+    var off = el ? caretOff(el) : n.text.length;
+    n.text = n.text.slice(0, start) + n.text.slice(off);
+    closeSlash();
+    it.run(n);
+    render();
+    if (S.nodes[n.id] && S.zoom !== n.id) focus(n.id, start);
+    scheduleSave();
+  }
+  function checkSlash(el, n) {
+    var off = caretOff(el);
+    var m = el.textContent.slice(0, off).match(/(?:^|\s)\/([^\s\/]*)$/);
+    if (m) {
+      slash = { id: n.id, start: off - m[1].length - 1, q: m[1].toLowerCase(), sel: 0 };
+      renderSlash();
+    } else if (slash) closeSlash();
+  }
+
+  /* ---------------- ask ---------------- */
+  function ask(text, okLabel, cb) {
+    var w = document.createElement('div');
+    w.className = 'askwrap';
+    w.innerHTML = '<div class="ask"><p>' + text + '</p><div class="btns">' +
+      '<button class="no">abbrechen</button><button class="yes">' + okLabel + '</button></div></div>';
+    document.body.appendChild(w);
+    w.addEventListener('click', function (e) {
+      if (e.target.closest('.yes')) { w.remove(); cb(); }
+      else if (e.target.closest('.no') || e.target === w) w.remove();
+    });
+  }
+
+  /* ---------------- events ---------------- */
+  function wire() {
+    var sheet = app.querySelector('.sheet');
+
+    sheet.addEventListener('input', function (e) {
+      var el = e.target.closest('.tx'); if (!el) return;
+      var n = N(idOf(el)), raw = el.textContent;
+      var m = raw.match(/^(\[\]|\[ \]|\[x\])\s/i);
+      if (m && !n.todo) {
+        snap();
+        n.todo = true; n.done = /x/i.test(m[1]); n.text = raw.slice(m[0].length);
+        render(); focus(n.id, 0); scheduleSave(); return;
+      }
+      n.text = raw;
+      checkSlash(el, n);
+      renderSide();
+      scheduleSave();
+    });
+
+    sheet.addEventListener('keydown', function (e) {
+      var el = e.target.closest('.tx'); if (!el) return;
+      var n = N(idOf(el));
+
+      if (slash) {
+        var items = slashItems();
+        if (e.key === 'Escape') { e.preventDefault(); closeSlash(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); slash.sel = (slash.sel + 1) % items.length; renderSlash(); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); slash.sel = (slash.sel - 1 + items.length) % items.length; renderSlash(); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(slash.sel); return; }
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var off = caretOff(el), full = el.textContent;
+        snap();
+        n.text = full.slice(0, off);
+        var nid = insertAfterNode(n, full.slice(off), { todo: n.todo && n.text.length > 0 });
+        render(); focus(nid, 0); scheduleSave(); return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        var o = caretOff(el);
+        if (e.shiftKey ? outdent(n.id) : indent(n.id)) { render(); focus(n.id, o); scheduleSave(); }
+        return;
+      }
+      if (e.key === 'Backspace' && atStart(el)) {
+        e.preventDefault();
+        if (n.parent && n.parent !== S.zoom) {
+          if (outdent(n.id)) { render(); focus(n.id, 0); scheduleSave(); }
+        } else mergeUp(el);
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        var all = rows(), i = all.indexOf(el), t = all[i + (e.key === 'ArrowUp' ? -1 : 1)];
+        if (t) { e.preventDefault(); var c = caretOff(el); focus(idOf(t), Math.min(c, t.textContent.length)); }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey && n.text === el.textContent) {
+        e.preventDefault(); undo();
+      }
+    });
+
+    sheet.addEventListener('click', function (e) {
+      if (e.target.closest('[data-empty]')) {
+        snap();
+        var nid = addNode('', S.zoom, 0);
+        render(); focus(nid, 0); scheduleSave(); return;
+      }
+      var b = e.target.closest('[data-k]'); if (!b) return;
+      var id = idOf(b), n = N(id), k = b.dataset.k;
+      if (k === 'fold') setFold(n, !n.collapsed);
+      if (k === 'open') setFold(n, false);
+      if (k === 'check') { snap(); n.done = !n.done; render(); scheduleSave(); }
+      if (k === 'knob') { S.zoom = id; render(); focus(n.children[0] || id, 0); scheduleSave(); }
+    });
+
+    var body = app.querySelector('.body');
+    body.addEventListener('click', function (e) {
+      if (e.target.closest('[data-act="help"]')) { toggleHelp(); return; }
+      if (e.target.closest('[data-act="hidedone"]')) { setHideDone(!S.hideDone); return; }
+      if (e.target.closest('[data-act="find"]')) { openSearch(); return; }
+      if (e.target.closest('[data-act="side"]')) { setSide(!sideOpen); return; }
+      if (e.target.closest('[data-act="hide"]')) { setSide(false); return; }
+      if (e.target.closest('[data-act="newpage"]')) { newPage(); return; }
+
+      var pf = e.target.closest('[data-pf]');
+      if (pf) { var i = pf.dataset.pf; S.navOpen[i] = !S.navOpen[i]; renderSide(); scheduleSave(); return; }
+
+      var pd = e.target.closest('[data-pd]');
+      if (pd) { askDelete(pd.dataset.pd); return; }
+
+      var pg = e.target.closest('[data-page]');
+      if (pg) {
+        S.zoom = pg.dataset.page === 'root' ? null : pg.dataset.page;
+        if (!window.matchMedia('(min-width: 900px)').matches) sideOpen = false;
+        render(); scheduleSave(); return;
+      }
+
+      if (e.target.closest('[data-zk]') && S.zoom) {
+        snap(); var z = N(S.zoom); z.done = !z.done;
+        render(); scheduleSave(); toast(z.done ? 'abgehakt' : 'haken weg'); return;
+      }
+      var cb = e.target.closest('[data-crumb]');
+      if (cb) { S.zoom = cb.dataset.crumb === 'root' ? null : cb.dataset.crumb; render(); scheduleSave(); }
+    });
+
+    body.addEventListener('input', function (e) {
+      if (!e.target.closest('.title') || !S.zoom) return;
+      N(S.zoom).text = e.target.textContent;
+      renderSide(); scheduleSave();
+    });
+    body.addEventListener('keydown', function (e) {
+      if (e.target.closest('.title') && e.key === 'Enter') {
+        e.preventDefault(); var r = rows(); if (r[0]) focus(idOf(r[0]), 0);
+      }
+    });
+
+    var bar = app.querySelector('.bar');
+    bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act]'); if (!b) return;
+      var act = b.dataset.act;
+      if (act === 'menu') { toggleMenu(); return; }
+      if (act === 'undo') { undo(); return; }
+      if (act === 'foldall') { foldAll(); return; }
+      var el = focusedRow();
+      if (!el) { toast('tipp erst in eine zeile'); return; }
+      var id = idOf(el), n = N(id), off = caretOff(el);
+      if (act === 'in') { if (indent(id)) { render(); focus(id, off); scheduleSave(); } }
+      if (act === 'out') { if (outdent(id)) { render(); focus(id, off); scheduleSave(); } }
+      if (act === 'up') { if (moveNode(id, -1)) { render(); focus(id, off); scheduleSave(); } }
+      if (act === 'down') { if (moveNode(id, 1)) { render(); focus(id, off); scheduleSave(); } }
+      if (act === 'todo') {
+        snap(); n.todo = !n.todo; if (!n.todo) n.done = false;
+        render(); focus(id, off); scheduleSave();
+        toast(n.todo ? 'ist jetzt ein to-do' : 'ist wieder normaler text');
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (app.querySelector('.sheetmenu') && !e.target.closest('.sheetmenu') && !e.target.closest('[data-act="menu"]')) toggleMenu(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault(); openSearch(); return;
+      }
+      if (e.key !== 'Escape') return;
+      if (slash) { closeSlash(); return; }
+      var sw = document.querySelector('.searchwrap'); if (sw) { closeSearch(); return; }
+      var aw = document.querySelector('.askwrap'); if (aw) { aw.remove(); return; }
+      if (sideOpen && !window.matchMedia('(min-width: 900px)').matches) { setSide(false); return; }
+      if (S.zoom) { S.zoom = N(S.zoom).parent || null; render(); scheduleSave(); }
+    });
+  }
+
+  function newPage() {
+    snap();
+    var id = addNode('', null, S.roots.length);
+    S.zoom = id;
+    if (!window.matchMedia('(min-width: 900px)').matches) sideOpen = false;
+    render(); scheduleSave();
+    var t = app.querySelector('.title');
+    if (t) t.focus();
+    toast('neue seite \u2014 gib ihr oben einen namen');
+  }
+
+  function askDelete(id) {
+    var n = N(id); if (!n) return;
+    var c = count(id);
+    var name = '\u201e' + esc(cut(n.text, 30)) + '\u201c';
+    var what = c ? ' mit ' + plural(c) + ' darin' : '';
+    ask(name + what + ' wirklich löschen?', 'löschen', function () {
+      snap();
+      if (S.zoom && isInside(S.zoom, id)) S.zoom = N(id).parent || null;
+      removeBranch(id);
+      render(); scheduleSave();
+      toast('gelöscht \u2014 mit ' + G.undo + ' zurückholbar');
+    });
+  }
+
+  function toggleHelp() {
+    var w = app.querySelector('.helpwrap');
+    if (w.firstChild) { w.innerHTML = ''; return; }
+    w.innerHTML = '<div class="helppanel">' +
+      '<div><span class="glyph">/</span><b>slash-menü</b> \u2014 tippe <b>/</b> mitten im schreiben. es klappt ein menü auf: to-do, einrücken, verschieben, löschen. weiterschreiben filtert, tippen wählt aus.</div>' +
+      '<div><span class="glyph">' + G.find + '</span><b>suchen</b> \u2014 oben der lupenknopf, sucht in allen seiten gleichzeitig. treffer antippen springt direkt hin und klappt alles nötige auf.</div>' +
+      '<div><span class="glyph">' + G.allshut + '</span><b>alles zu</b> \u2014 klappt auf einen schlag jede zeile zu, unter der etwas steht. nochmal drücken klappt alles wieder auf. einzelne zeilen gehen weiter über das dreieck links.</div>' +
+      '<div><span class="glyph">' + G.check + '</span><b>erledigte</b> \u2014 oben zeigt „4/9 erledigt" den fortschritt; antippen blendet abgehakte zeilen aus. unter ' + G.more + ' kannst du alle erledigten auf einmal löschen.</div>' +
+      '<div><span class="glyph">' + G.up + '</span><b>verschieben</b> \u2014 ' + G.up + ' und ' + G.down + ' unten sortieren die zeile um. eingerückte zeilen kommen mit.</div>' +
+      '<div><span class="glyph">' + G.burger + '</span><b>seiten</b> \u2014 oben links das menü. jede zeile der obersten ebene ist eine seite. unten neue anlegen, mit ' + G.del + ' löschen.</div>' +
+      '<div><span class="glyph">' + G.into + '</span><b>einrücken</b> \u2014 mit ' + G.out + ' und ' + G.into + '. eine eingerückte zeile gehört zu der zeile über ihr.</div>' +
+      '<div><span class="glyph">' + G.fold + '</span><b>zuklappen</b> \u2014 das dreieck gibt es nur bei zeilen, unter denen etwas eingerückt steht. gelöscht wird dabei nie etwas.</div>' +
+      '<div><span class="glyph">\u25CF</span><b>hineingehen</b> \u2014 tipp auf den punkt. die zeile wird zur eigenen seite.</div>' +
+      '</div>';
+  }
+
+  function undo() {
+    if (!undoStack.length) { toast('nichts mehr zum zurücknehmen'); return; }
+    var d = JSON.parse(undoStack.pop());
+    S.nodes = d.nodes; S.roots = d.roots;
+    S.zoom = d.zoom && S.nodes[d.zoom] ? d.zoom : null;
+    render(); scheduleSave(); toast('zurückgenommen');
+  }
+
+  function toggleMenu(force) {
+    var m = app.querySelector('.sheetmenu');
+    if (m) { m.remove(); if (force !== true) return; }
+    if (force === false) return;
+    var d = document.createElement('div');
+    d.className = 'sheetmenu';
+    d.innerHTML =
+      '<button data-m="purge">erledigte zeilen löschen</button>' +
+      '<button data-m="del">diese zeile und alles darin löschen</button>' +
+      '<hr>' +
+      '<button data-m="json">sicherung herunterladen (alle seiten)</button>' +
+      '<button data-m="load">sicherung einlesen</button>' +
+      '<button data-m="txt">alles als text kopieren</button>' +
+      '<div class="hint">die sicherung ist eine datei mit allen seiten. sie ist die einzige kopie, die nicht verloren geht.</div>';
+    app.appendChild(d);
+    d.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-m]'); if (!b) return;
+      var k = b.dataset.m; toggleMenu(false);
+      if (k === 'del') delFocused();
+      if (k === 'purge') purgeDone();
+      if (k === 'txt') copyText();
+      if (k === 'json') dlJson();
+      if (k === 'load') loadJson();
+    });
+  }
+
+  function delFocused() {
+    var el = focusedRow();
+    if (!el) { toast('tipp erst in die zeile, die weg soll'); return; }
+    askDelete(idOf(el));
+  }
+
+  function asText() {
+    var out = [];
+    S.roots.forEach(function (rid) {
+      out.push('# ' + (N(rid).text || 'ohne titel'));
+      (function walk(ids, lvl) {
+        ids.forEach(function (id) {
+          var n = N(id);
+          out.push(new Array(lvl + 1).join('  ') + (n.todo ? (n.done ? '- [x] ' : '- [ ] ') : '- ') + n.text);
+          walk(n.children, lvl + 1);
+        });
+      })(N(rid).children, 0);
+      out.push('');
+    });
+    return out.join('\n');
+  }
+  function copyText() {
+    var t = asText();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () { toast('alle seiten als text kopiert'); }, function () { toast('kopieren war nicht erlaubt'); });
+    } else toast('kopieren geht hier nicht');
+  }
+  function dlJson() {
+    try {
+      var blob = new Blob([JSON.stringify(payload(), null, 1)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'notizen-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+      toast(S.roots.length + ' seiten in einer datei gesichert');
+    } catch (e) { toast('download geht hier nicht \u2014 nimm \u201ealles als text kopieren\u201c'); }
+  }
+  function loadJson() {
+    var i = document.createElement('input');
+    i.type = 'file'; i.accept = '.json,application/json';
+    i.onchange = function () {
+      var f = i.files && i.files[0]; if (!f) return;
+      var fr = new FileReader();
+      fr.onload = function () {
+        var d;
+        try {
+          d = JSON.parse(fr.result);
+          if (!d.nodes || !d.roots || !d.roots.length) throw new Error('format');
+        } catch (e) { toast('diese datei passt nicht'); return; }
+        ask('sicherung mit ' + d.roots.length + ' seiten einlesen? was jetzt hier steht, wird dabei ersetzt.', 'einlesen', function () {
+          snap();
+          S.nodes = d.nodes; S.roots = d.roots; S.navOpen = d.navOpen || {}; S.zoom = null;
+          render(); scheduleSave(); toast('sicherung eingelesen');
+        });
+      };
+      fr.readAsText(f);
+    };
+    i.click();
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
