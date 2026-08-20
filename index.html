@@ -213,6 +213,7 @@
     min-height: 28px; word-break: break-word; white-space: pre-wrap;
   }
   .tx:focus { outline: none; }
+  .tx::after { content: "\200B"; }
   .node.done > .row > .tx { color: var(--ink-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
   .tx:empty:focus::before { content: "schreib etwas"; color: var(--ink-faint); }
   .node.shut > .row { background: var(--accent-soft); border-radius: 9px; }
@@ -260,6 +261,21 @@
     display: block; font-family: var(--font-util); font-size: 9.5px;
     letter-spacing: .05em; color: var(--ink-faint); margin-top: 3px;
   }
+
+  .node.picked > .row { background: var(--accent-soft); border-radius: 9px; }
+  .pickbar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    background: var(--raised); border-top: 1px solid var(--rule); padding: 8px 12px;
+  }
+  .pickinfo {
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .06em;
+    color: var(--accent); margin-right: 6px;
+  }
+  .pickbar button {
+    padding: 8px 12px; border-radius: 8px; font-size: 14px; color: var(--ink-soft);
+  }
+  .pickbar button:hover { background: var(--accent-soft); color: var(--accent); }
+  .pickbar button[data-p="del"]:hover { background: var(--danger-soft); color: var(--danger); }
 
   /* ---------- slash ---------- */
   .slash {
@@ -364,7 +380,7 @@
   function sibs(n) { return n.parent ? N(n.parent).children : S.roots; }
   function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function plural(n) { return n + (n === 1 ? ' zeile' : ' zeilen'); }
-  function cut(s, n) { s = s || 'ohne titel'; return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
+  function cut(s, n) { s = (s || 'ohne titel').replace(/\s+/g, ' ').trim() || 'ohne titel'; return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
   function count(id) { var c = 0; N(id).children.forEach(function (k) { c += 1 + count(k); }); return c; }
 
   /* ---------------- storage ---------------- */
@@ -552,7 +568,7 @@
           '</div>';
         if (open && subs.length) walk(subs, lvl + 1);
       });
-    })(S.roots, 0);
+    })(S.roots.slice().sort(function (a, b) { return (N(a).archive ? 1 : 0) - (N(b).archive ? 1 : 0); }), 0);
 
     app.querySelector('.pagelist').innerHTML = out;
   }
@@ -623,6 +639,8 @@
       fa.querySelector('.cap').textContent = anyOpen ? 'alles zu' : 'alles auf';
     }
 
+    pick.ids = pick.ids.filter(function (id) { return !!S.nodes[id]; });
+    applyPick();
     renderSide();
     setSide(sideOpen);
 
@@ -753,10 +771,14 @@
     return false;
   }
 
-  function eachInView(fn) {
+  function eachInView(fn, includeArchive) {
     var list = S.zoom ? N(S.zoom).children : S.roots;
     (function walk(ids) {
-      ids.forEach(function (id) { if (N(id)) { fn(N(id)); walk(N(id).children); } });
+      ids.forEach(function (id) {
+        var n = N(id); if (!n) return;
+        if (n.archive && !includeArchive && S.zoom !== id) return;
+        fn(n); walk(n.children);
+      });
     })(list);
   }
   function progress() {
@@ -772,7 +794,45 @@
     render(); scheduleSave();
     toast(anyOpen ? 'alles zugeklappt' : 'alles aufgeklappt');
   }
-  function purgeDone() {
+  function setDone(n, v) {
+    var moved = 0;
+    n.done = v;
+    if (v) n.doneAt = ymd(); else delete n.doneAt;
+    (function w(ids) {
+      ids.forEach(function (i) {
+        var k = N(i);
+        if (k.todo && k.done !== v) { k.done = v; if (v) k.doneAt = ymd(); else delete k.doneAt; moved++; }
+        w(k.children);
+      });
+    })(n.children);
+    return moved;
+  }
+
+  /* ---------------- erledigt-archiv ---------------- */
+  var MONATE = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
+  function ymd(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function dayLabel(s) {
+    var p = s.split('-');
+    return (+p[2]) + '. ' + MONATE[+p[1] - 1] + ' ' + p[0];
+  }
+  function getArchive() {
+    var found = S.roots.filter(function (id) { return N(id).archive; })[0];
+    if (found) return found;
+    var id = addNode('erledigt', null, S.roots.length, { archive: true, collapsed: true });
+    return id;
+  }
+  function dayPage(day) {
+    var arc = getArchive(), kids = N(arc).children;
+    var hit = kids.filter(function (id) { return N(id).day === day; })[0];
+    if (hit) return hit;
+    var pos = 0;
+    while (pos < kids.length && (N(kids[pos]).day || '') > day) pos++;
+    return addNode(dayLabel(day), arc, pos, { day: day });
+  }
+  function archiveDone() {
     var ids = [];
     eachInView(function (n) { if (n.todo && n.done) ids.push(n.id); });
     ids = ids.filter(function (id) {
@@ -780,15 +840,25 @@
     });
     if (!ids.length) { toast('hier ist nichts erledigt'); return; }
     var withKids = ids.filter(function (id) { return N(id).children.length; }).length;
-    var where = S.zoom ? 'auf dieser seite' : 'in allen seiten';
-    ask(ids.length + (ids.length === 1 ? ' erledigte zeile ' : ' erledigte zeilen ') + where + ' löschen?' +
-        (withKids ? ' bei ' + withKids + ' davon hängen unterzeilen dran, die mitgelöscht werden.' : ''),
-      'löschen', function () {
+    var where = S.zoom ? 'von dieser seite' : 'aus allen seiten';
+    ask(ids.length + (ids.length === 1 ? ' erledigte zeile ' : ' erledigte zeilen ') + where +
+        ' nach \u201eerledigt\u201c verschieben?' +
+        (withKids ? ' bei ' + withKids + ' davon kommen die unterzeilen mit.' : ''),
+      'verschieben', function () {
         snap();
-        ids.forEach(removeBranch);
+        var days = {};
+        ids.forEach(function (id) {
+          var n = N(id), day = n.doneAt || ymd();
+          var target = dayPage(day);
+          detach(n);
+          n.parent = target;
+          N(target).children.push(id);
+          days[day] = 1;
+        });
+        var arc = getArchive();
         if (S.zoom && !S.nodes[S.zoom]) S.zoom = null;
         render(); scheduleSave();
-        toast(ids.length + ' erledigte gelöscht \u2014 mit ' + G.undo + ' zurückholbar');
+        toast(ids.length + ' verschoben nach \u201e' + N(arc).text + '\u201c');
       });
   }
   function setHideDone(v) {
@@ -851,9 +921,10 @@
     hits.sort(function (a, b) { return a.i - b.i || a.t.length - b.t.length; });
     box.innerHTML = '<div class="shint">' + hits.length + ' treffer</div>' +
       hits.slice(0, 40).map(function (h, k) {
-        var pre = esc(h.t.slice(0, h.i)),
-            mid = esc(h.t.slice(h.i, h.i + q.length)),
-            post = esc(h.t.slice(h.i + q.length));
+        var flat = h.t.replace(/\n/g, ' ');
+        var pre = esc(flat.slice(0, h.i)),
+            mid = esc(flat.slice(h.i, h.i + q.length)),
+            post = esc(flat.slice(h.i + q.length));
         return '<button class="sres' + (k === 0 ? ' on' : '') + '" data-go="' + h.id + '">' +
           '<span class="stext">' + pre + '<mark>' + mid + '</mark>' + post + '</span>' +
           '<span class="spath">' + esc(pathOf(h.id)) + '</span></button>';
@@ -884,6 +955,8 @@
       show: function (n) { return n.children.length > 0; },
       run: function (n) { n.collapsed = !n.collapsed; } },
     { label: function () { return 'als seite öffnen'; }, run: function (n) { S.zoom = n.id; } },
+    { label: function (n) { return n.children.length ? 'mit allem darunter kopieren' : 'zeile kopieren'; },
+      run: function (n) { copyBranch(n.id); } },
     { label: function () { return 'zeile löschen'; }, run: function (n) { snap(); removeBranch(n.id); } }
   ];
 
@@ -938,6 +1011,163 @@
     } else if (slash) closeSlash();
   }
 
+  /* ---------------- kopieren & einfügen ---------------- */
+  function markOf(n) { return n.todo ? (n.done ? '- [x] ' : '- [ ] ') : '- '; }
+  function branchText(id) {
+    var out = [];
+    (function w(ids, l) {
+      ids.forEach(function (i) {
+        var n = N(i), pad = new Array(l + 1).join('  ');
+        out.push(pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  '));
+        w(n.children, l + 1);
+      });
+    })([id], 0);
+    return out.join('\n');
+  }
+  function toClip(text, msg) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast(msg); }, function () { toast('kopieren war nicht erlaubt'); });
+    } else toast('kopieren geht hier nicht');
+  }
+  function copyBranch(id) {
+    var n = N(id); if (!n) return;
+    toClip(branchText(id), (1 + count(id)) + ' zeilen kopiert');
+  }
+
+  /* eingefügten text in zeilen zerlegen: einrückung und -/[ ] werden gelesen */
+  function parsePaste(txt) {
+    var lines = txt.replace(/\r/g, '').split('\n');
+    var out = [];
+    lines.forEach(function (raw) {
+      var lead = raw.match(/^[ \t]*/)[0];
+      var lvl = Math.floor(lead.replace(/\t/g, '  ').length / 2);
+      var t = raw.slice(lead.length);
+      var todo = false, done = false;
+      var bullet = t.match(/^[-*\u2022]\s+/); if (bullet) t = t.slice(bullet[0].length);
+      var box = t.match(/^\[([ xX]?)\]\s*/); if (box) { todo = true; done = /x/i.test(box[1]); t = t.slice(box[0].length); }
+      if (!t.trim() && !out.length) return;
+      out.push({ lvl: lvl, text: t.trim(), todo: todo, done: done });
+    });
+    while (out.length && !out[out.length - 1].text) out.pop();
+    return out;
+  }
+  function insertPaste(n, txt) {
+    var rows = parsePaste(txt);
+    if (!rows.length) return 0;
+    snap();
+    var base = rows[0].lvl;
+    rows.forEach(function (r) { r.lvl = Math.max(r.lvl, base); });
+
+    var first = rows[0], anchorId;
+    if (!n.text) { n.text = first.text; n.todo = first.todo; n.done = first.done; anchorId = n.id; }
+    else anchorId = insertAfterNode(n, first.text, { todo: first.todo, done: first.done });
+
+    var byLvl = {}; byLvl[base] = anchorId;
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i], pl = r.lvl - 1, id;
+      while (pl >= base && byLvl[pl] === undefined) pl--;
+      if (r.lvl === base || pl < base) {
+        var anc = N(byLvl[base]), arr = anc.parent ? N(anc.parent).children : S.roots;
+        id = addNode(r.text, anc.parent, arr.indexOf(anc.id) + 1, { todo: r.todo, done: r.done });
+        byLvl[base] = id;
+      } else {
+        N(pl >= base ? byLvl[pl] : byLvl[base]).collapsed = false;
+        id = addNode(r.text, byLvl[pl], null, { todo: r.todo, done: r.done });
+        byLvl[r.lvl] = id;
+      }
+      Object.keys(byLvl).forEach(function (k) { if (+k > r.lvl) delete byLvl[k]; });
+    }
+    return rows.length;
+  }
+
+  /* ---------------- blockauswahl ---------------- */
+  var pick = { ids: [], anchor: null };
+
+  function depthOf(id) { var d = 0, p = N(id) && N(id).parent; while (p && p !== S.zoom) { d++; p = N(p).parent; } return d; }
+  function clearPick() { if (!pick.ids.length) return; pick.ids = []; applyPick(); }
+  function applyPick() {
+    Array.prototype.forEach.call(app.querySelectorAll('.node.picked'), function (el) { el.classList.remove('picked'); });
+    pick.ids.forEach(function (id) {
+      var el = app.querySelector('.node[data-id="' + id + '"]');
+      if (el) el.classList.add('picked');
+    });
+    renderPickBar();
+  }
+  function pickRange(a, b) {
+    var order = rows().map(idOf);
+    var i = order.indexOf(a), j = order.indexOf(b);
+    if (i < 0 || j < 0) return;
+    if (i > j) { var t = i; i = j; j = t; }
+    pick.ids = order.slice(i, j + 1);
+    var sel = window.getSelection(); if (sel) sel.removeAllRanges();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    applyPick();
+  }
+  function pickText() {
+    var order = rows().map(idOf).filter(function (id) { return pick.ids.indexOf(id) > -1; });
+    if (!order.length) return '';
+    var dep = {}, min = 99;
+    order.forEach(function (id) { dep[id] = depthOf(id); if (dep[id] < min) min = dep[id]; });
+    return order.map(function (id) {
+      var n = N(id), pad = new Array(dep[id] - min + 1).join('  ');
+      return pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  ');
+    }).join('\n');
+  }
+  function topMost(ids) {
+    return ids.filter(function (id) {
+      return !ids.some(function (o) { return o !== id && isInside(N(id).parent, o); });
+    });
+  }
+  function deletePick(confirmFirst) {
+    var ids = topMost(pick.ids.slice());
+    if (!ids.length) return;
+    var go = function () {
+      snap();
+      ids.forEach(removeBranch);
+      if (S.zoom && !S.nodes[S.zoom]) S.zoom = null;
+      pick.ids = [];
+      render(); scheduleSave();
+      toast('gelöscht \u2014 mit ' + G.undo + ' zurückholbar');
+    };
+    if (!confirmFirst) return go();
+    ask(ids.length + (ids.length === 1 ? ' zeile' : ' zeilen') + ' mit allem darunter löschen?', 'löschen', go);
+  }
+  function renderPickBar() {
+    var bar = app.querySelector('.pickbar');
+    if (!pick.ids.length) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'pickbar';
+      app.querySelector('.bar').insertAdjacentElement('beforebegin', bar);
+      bar.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      bar.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-p]'); if (!b) return;
+        var k = b.dataset.p, n = pick.ids.length;
+        if (k === 'copy') toClip(pickText(), n + ' zeilen kopiert');
+        if (k === 'cut') { toClip(pickText(), n + ' zeilen ausgeschnitten'); deletePick(false); }
+        if (k === 'del') deletePick(true);
+        if (k === 'none') clearPick();
+      });
+    }
+    bar.innerHTML = '<span class="pickinfo">' + pick.ids.length + ' zeilen ausgewählt</span>' +
+      '<button data-p="copy">kopieren</button>' +
+      '<button data-p="cut">ausschneiden</button>' +
+      '<button data-p="del">löschen</button>' +
+      '<button data-p="none">aufheben</button>';
+  }
+  function extendPick(dir) {
+    var order = rows().map(idOf);
+    if (!pick.ids.length) {
+      var fr = focusedRow(); if (!fr) return;
+      pick.anchor = idOf(fr);
+      pick.ids = [pick.anchor];
+    }
+    var last = pick.ids[dir < 0 ? 0 : pick.ids.length - 1];
+    var i = order.indexOf(last) + dir;
+    if (i < 0 || i >= order.length) return;
+    pickRange(pick.anchor || pick.ids[0], order[i]);
+  }
+
   /* ---------------- ask ---------------- */
   function ask(text, okLabel, cb) {
     var w = document.createElement('div');
@@ -954,6 +1184,34 @@
   /* ---------------- events ---------------- */
   function wire() {
     var sheet = app.querySelector('.sheet');
+
+    sheet.addEventListener('mousedown', function (e) {
+      var el = e.target.closest('.tx');
+      if (!el) return;
+      if (e.shiftKey) {
+        e.preventDefault();
+        var to = idOf(el);
+        if (!pick.anchor) pick.anchor = to;
+        pickRange(pick.anchor, to);
+      } else if (pick.ids.length) clearPick();
+    });
+    sheet.addEventListener('focusin', function (e) {
+      var el = e.target.closest('.tx');
+      if (el && !pick.ids.length) pick.anchor = idOf(el);
+    });
+
+    sheet.addEventListener('paste', function (e) {
+      var el = e.target.closest('.tx'); if (!el) return;
+      var cd = e.clipboardData || window.clipboardData;
+      var txt = cd ? cd.getData('text') : '';
+      if (!txt || txt.indexOf('\n') === -1) return;
+      e.preventDefault();
+      var n = N(idOf(el));
+      n.text = el.textContent;
+      var made = insertPaste(n, txt);
+      render(); scheduleSave();
+      toast(made + ' zeilen eingefügt');
+    });
 
     sheet.addEventListener('input', function (e) {
       var el = e.target.closest('.tx'); if (!el) return;
@@ -980,6 +1238,36 @@
         if (e.key === 'ArrowDown') { e.preventDefault(); slash.sel = (slash.sel + 1) % items.length; renderSlash(); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); slash.sel = (slash.sel - 1 + items.length) % items.length; renderSlash(); return; }
         if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(slash.sel); return; }
+      }
+      if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault(); extendPick(e.key === 'ArrowUp' ? -1 : 1); return;
+      }
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        var mo = caretOff(el);
+        if (moveNode(n.id, e.key === 'ArrowUp' ? -1 : 1)) { render(); focus(n.id, mo); scheduleSave(); }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        var co = caretOff(el);
+        snap(); n.todo = !n.todo; if (!n.todo) { n.done = false; delete n.doneAt; }
+        render(); focus(n.id, co); scheduleSave();
+        return;
+      }
+      if (e.key === 'Enter' && e.shiftKey) {
+        e.preventDefault();
+        var sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        var rg = sel.getRangeAt(0);
+        rg.deleteContents();
+        var tn = document.createTextNode('\n');
+        rg.insertNode(tn);
+        rg.setStartAfter(tn); rg.collapse(true);
+        sel.removeAllRanges(); sel.addRange(rg);
+        n.text = el.textContent;
+        renderSide(); scheduleSave();
+        return;
       }
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1022,7 +1310,12 @@
       var id = idOf(b), n = N(id), k = b.dataset.k;
       if (k === 'fold') setFold(n, !n.collapsed);
       if (k === 'open') setFold(n, false);
-      if (k === 'check') { snap(); n.done = !n.done; render(); scheduleSave(); }
+      if (k === 'check') {
+        snap();
+        var also = setDone(n, !n.done);
+        render(); scheduleSave();
+        if (also) toast(n.done ? 'abgehakt \u2014 ' + also + ' darunter mit' : 'haken weg \u2014 ' + also + ' darunter auch');
+      }
       if (k === 'knob') { S.zoom = id; render(); focus(n.children[0] || id, 0); scheduleSave(); }
     });
 
@@ -1049,8 +1342,11 @@
       }
 
       if (e.target.closest('[data-zk]') && S.zoom) {
-        snap(); var z = N(S.zoom); z.done = !z.done;
-        render(); scheduleSave(); toast(z.done ? 'abgehakt' : 'haken weg'); return;
+        snap();
+        var z = N(S.zoom), also = setDone(z, !z.done);
+        render(); scheduleSave();
+        toast((z.done ? 'abgehakt' : 'haken weg') + (also ? ' \u2014 ' + also + ' darunter mit' : ''));
+        return;
       }
       var cb = e.target.closest('[data-crumb]');
       if (cb) { S.zoom = cb.dataset.crumb === 'root' ? null : cb.dataset.crumb; render(); scheduleSave(); }
@@ -1092,7 +1388,37 @@
     document.addEventListener('click', function (e) {
       if (app.querySelector('.sheetmenu') && !e.target.closest('.sheetmenu') && !e.target.closest('[data-act="menu"]')) toggleMenu(false);
     });
+    document.addEventListener('copy', function (e) {
+      if (!pick.ids.length || !e.clipboardData) return;
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', pickText());
+      toast(pick.ids.length + ' zeilen kopiert');
+    });
+    document.addEventListener('cut', function (e) {
+      if (!pick.ids.length || !e.clipboardData) return;
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', pickText());
+      deletePick(false);
+    });
+
     document.addEventListener('keydown', function (e) {
+      if (pick.ids.length) {
+        if (e.key === 'Escape') { e.preventDefault(); clearPick(); return; }
+        if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); deletePick(true); return; }
+        if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          e.preventDefault(); extendPick(e.key === 'ArrowUp' ? -1 : 1); return;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          var keep = pick.ids[e.key === 'ArrowUp' ? 0 : pick.ids.length - 1];
+          clearPick(); focus(keep, 0); return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+          e.preventDefault();
+          var all = rows().map(idOf);
+          if (all.length) pickRange(all[0], all[all.length - 1]);
+          return;
+        }
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault(); openSearch(); return;
       }
@@ -1134,6 +1460,8 @@
     var w = app.querySelector('.helpwrap');
     if (w.firstChild) { w.innerHTML = ''; return; }
     w.innerHTML = '<div class="helppanel">' +
+      '<div><span class="glyph">\u21E7</span><b>mehrere zeilen</b> \u2014 in eine zeile klicken, dann mit <b>shift + klick</b> auf eine andere: alles dazwischen ist ausgewählt. auch mit <b>shift + pfeiltasten</b>. dann <b>strg+c</b>, <b>strg+x</b> oder entf \u2014 oder die knöpfe, die unten erscheinen.</div>' +
+      '<div><span class="glyph">\u2318</span><b>kürzel</b> \u2014 alt+↑/↓ verschiebt die zeile, strg+enter macht sie zum to-do, tab und shift+tab rücken ein und aus, strg+k sucht, shift+enter macht einen umbruch in der zeile.</div>' +
       '<div><span class="glyph">/</span><b>slash-menü</b> \u2014 tippe <b>/</b> mitten im schreiben. es klappt ein menü auf: to-do, einrücken, verschieben, löschen. weiterschreiben filtert, tippen wählt aus.</div>' +
       '<div><span class="glyph">' + G.find + '</span><b>suchen</b> \u2014 oben der lupenknopf, sucht in allen seiten gleichzeitig. treffer antippen springt direkt hin und klappt alles nötige auf.</div>' +
       '<div><span class="glyph">' + G.allshut + '</span><b>alles zu</b> \u2014 klappt auf einen schlag jede zeile zu, unter der etwas steht. nochmal drücken klappt alles wieder auf. einzelne zeilen gehen weiter über das dreieck links.</div>' +
@@ -1161,7 +1489,8 @@
     var d = document.createElement('div');
     d.className = 'sheetmenu';
     d.innerHTML =
-      '<button data-m="purge">erledigte zeilen löschen</button>' +
+      '<button data-m="copy">diese zeile mit allem darunter kopieren</button>' +
+      '<button data-m="purge">erledigte nach „erledigt" verschieben</button>' +
       '<button data-m="del">diese zeile und alles darin löschen</button>' +
       '<hr>' +
       '<button data-m="json">sicherung herunterladen (alle seiten)</button>' +
@@ -1173,7 +1502,11 @@
       var b = e.target.closest('[data-m]'); if (!b) return;
       var k = b.dataset.m; toggleMenu(false);
       if (k === 'del') delFocused();
-      if (k === 'purge') purgeDone();
+      if (k === 'copy') {
+        var fr = focusedRow();
+        if (!fr) toast('tipp erst in eine zeile'); else copyBranch(idOf(fr));
+      }
+      if (k === 'purge') archiveDone();
       if (k === 'txt') copyText();
       if (k === 'json') dlJson();
       if (k === 'load') loadJson();
@@ -1189,11 +1522,11 @@
   function asText() {
     var out = [];
     S.roots.forEach(function (rid) {
-      out.push('# ' + (N(rid).text || 'ohne titel'));
+      out.push('# ' + cut(N(rid).text, 200));
       (function walk(ids, lvl) {
         ids.forEach(function (id) {
-          var n = N(id);
-          out.push(new Array(lvl + 1).join('  ') + (n.todo ? (n.done ? '- [x] ' : '- [ ] ') : '- ') + n.text);
+          var n = N(id), pad = new Array(lvl + 1).join('  ');
+          out.push(pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  '));
           walk(n.children, lvl + 1);
         });
       })(N(rid).children, 0);
