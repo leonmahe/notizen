@@ -176,7 +176,25 @@
 
   /* ---------- tree ---------- */
   .scroll { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
-  .sheet { padding: 4px 18px 28px; }
+  .sheet { padding: 4px 18px 28px; position: relative; }
+  .knob { touch-action: none; cursor: grab; }
+  .dragging { user-select: none; -webkit-user-select: none; }
+  .dragging .knob { cursor: grabbing; }
+  .node.dragged > .row { opacity: .38; }
+  .dropline {
+    position: absolute; height: 2px; background: var(--accent);
+    border-radius: 2px; pointer-events: none; z-index: 3;
+  }
+  .dropline::before {
+    content: ''; position: absolute; left: -4px; top: -3px;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  }
+  .dragchip {
+    position: fixed; z-index: 60; pointer-events: none;
+    background: var(--ink); color: var(--surface);
+    font-family: var(--font-util); font-size: 10.5px; letter-spacing: .04em;
+    padding: 6px 11px; border-radius: 14px; opacity: .95;
+  }
   .kids { margin-left: 13px; padding-left: 14px; border-left: 1px solid var(--rule); transition: border-color .18s; }
   .kids:focus-within { border-left-color: var(--rule-strong); }
   .kids.reveal { animation: reveal .22s ease both; }
@@ -1168,6 +1186,123 @@
     pickRange(pick.anchor || pick.ids[0], order[i]);
   }
 
+  /* ---------------- ziehen und ablegen ---------------- */
+  var IND = 27; /* pixel pro einrückungsebene, passend zu .kids */
+  var drag = null, suppressClick = false;
+
+  function rowsInfo() {
+    return Array.prototype.map.call(app.querySelectorAll('.sheet .node'), function (el) {
+      var r = el.querySelector('.row').getBoundingClientRect();
+      return {
+        id: el.dataset.id, top: r.top, bottom: r.bottom,
+        mid: (r.top + r.bottom) / 2, left: r.left, depth: depthOf(el.dataset.id)
+      };
+    });
+  }
+  function startDrag(id, x, y) {
+    var ids = pick.ids.indexOf(id) > -1 ? topMost(pick.ids.slice()) : [id];
+    var order = rows().map(idOf);
+    ids.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+    drag = { ids: ids, target: null };
+    app.classList.add('dragging');
+    ids.forEach(function (i) {
+      var el = app.querySelector('.node[data-id="' + i + '"]');
+      if (el) el.classList.add('dragged');
+    });
+    var chip = document.createElement('div');
+    chip.className = 'dragchip';
+    chip.textContent = ids.length > 1 ? ids.length + ' zeilen' : cut(N(ids[0]).text, 26);
+    document.body.appendChild(chip);
+    drag.chip = chip;
+    moveDrag(x, y);
+  }
+  function moveDrag(x, y) {
+    if (!drag) return;
+    drag.chip.style.left = (x + 14) + 'px';
+    drag.chip.style.top = (y + 14) + 'px';
+
+    var info = rowsInfo().filter(function (r) {
+      return !drag.ids.some(function (d) { return d === r.id || isInside(r.id, d); });
+    });
+    var i = 0;
+    while (i < info.length && y > info[i].mid) i++;
+    var after = i > 0 ? info[i - 1] : null;
+    var before = i < info.length ? info[i] : null;
+    var base = info.length ? (info[0].left - info[0].depth * IND) : 0;
+    var maxD = after ? after.depth + 1 : 0;
+    var minD = before ? before.depth : 0;
+    var d = Math.max(minD, Math.min(maxD, Math.round((x - base) / IND)));
+    drag.target = { after: after ? after.id : null, depth: d };
+
+    var sheet = app.querySelector('.sheet'), sr = sheet.getBoundingClientRect();
+    var line = sheet.querySelector('.dropline');
+    if (!line) { line = document.createElement('div'); line.className = 'dropline'; sheet.appendChild(line); }
+    var ly = after ? after.bottom : (before ? before.top : sr.top + 4);
+    line.style.top = (ly - sr.top - 1) + 'px';
+    line.style.left = (base + d * IND - sr.left) + 'px';
+    line.style.right = '0px';
+  }
+  function autoScroll(y) {
+    var sc = app.querySelector('.scroll'); if (!sc) return;
+    var r = sc.getBoundingClientRect();
+    if (y < r.top + 48) sc.scrollTop -= 14;
+    else if (y > r.bottom - 48) sc.scrollTop += 14;
+  }
+  function cleanupDrag() {
+    app.classList.remove('dragging');
+    Array.prototype.forEach.call(app.querySelectorAll('.node.dragged'), function (el) { el.classList.remove('dragged'); });
+    var line = app.querySelector('.dropline'); if (line) line.remove();
+    if (drag && drag.chip) drag.chip.remove();
+    drag = null;
+    setTimeout(function () { suppressClick = false; }, 0);
+  }
+  function endDrag(ok) {
+    if (!drag) return;
+    var t = drag.target, ids = drag.ids;
+    cleanupDrag();
+    if (!ok || !t) return;
+
+    /* ziel festlegen, solange die tiefen noch stimmen */
+    var plan;
+    if (!t.after) plan = { mode: 'start' };
+    else if (t.depth > depthOf(t.after)) plan = { mode: 'child', id: t.after };
+    else {
+      var cur = t.after;
+      while (cur && depthOf(cur) > t.depth) cur = N(cur).parent;
+      plan = cur ? { mode: 'after', id: cur } : { mode: 'start' };
+    }
+    var parentCheck = plan.mode === 'child' ? plan.id : (plan.mode === 'after' ? N(plan.id).parent : S.zoom);
+    if (parentCheck && ids.some(function (i) { return isInside(parentCheck, i); })) {
+      toast('das geht nicht \u2014 das ziel liegt in der zeile selbst');
+      return;
+    }
+
+    snap();
+    ids.forEach(function (id) { detach(N(id)); });
+
+    var parent, arr, index;
+    if (plan.mode === 'child') {
+      parent = plan.id; N(parent).collapsed = false;
+      arr = N(parent).children; index = 0;
+    } else if (plan.mode === 'after') {
+      parent = N(plan.id).parent;
+      arr = parent ? N(parent).children : S.roots;
+      index = arr.indexOf(plan.id) + 1;
+    } else {
+      parent = S.zoom || null;
+      arr = parent ? N(parent).children : S.roots;
+      index = 0;
+    }
+    ids.forEach(function (id, k) {
+      arr.splice(Math.max(0, Math.min(index + k, arr.length)), 0, id);
+      N(id).parent = parent;
+    });
+
+    clearPick();
+    render(); scheduleSave();
+    toast(ids.length > 1 ? ids.length + ' zeilen verschoben' : 'verschoben');
+  }
+
   /* ---------------- ask ---------------- */
   function ask(text, okLabel, cb) {
     var w = document.createElement('div');
@@ -1184,6 +1319,32 @@
   /* ---------------- events ---------------- */
   function wire() {
     var sheet = app.querySelector('.sheet');
+
+    sheet.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      var k = e.target.closest('.knob'); if (!k) return;
+      var id = idOf(k), sx = e.clientX, sy = e.clientY, started = false;
+      function mv(ev) {
+        if (!started) {
+          if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 6) return;
+          started = true; suppressClick = true;
+          startDrag(id, ev.clientX, ev.clientY);
+        }
+        ev.preventDefault();
+        moveDrag(ev.clientX, ev.clientY);
+        autoScroll(ev.clientY);
+      }
+      function off() {
+        document.removeEventListener('pointermove', mv);
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', ca);
+      }
+      function up() { off(); if (started) endDrag(true); }
+      function ca() { off(); if (started) endDrag(false); }
+      document.addEventListener('pointermove', mv);
+      document.addEventListener('pointerup', up);
+      document.addEventListener('pointercancel', ca);
+    });
 
     sheet.addEventListener('mousedown', function (e) {
       var el = e.target.closest('.tx');
@@ -1301,6 +1462,7 @@
     });
 
     sheet.addEventListener('click', function (e) {
+      if (suppressClick) { suppressClick = false; return; }
       if (e.target.closest('[data-empty]')) {
         snap();
         var nid = addNode('', S.zoom, 0);
@@ -1402,6 +1564,7 @@
     });
 
     document.addEventListener('keydown', function (e) {
+      if (drag && e.key === 'Escape') { e.preventDefault(); endDrag(false); toast('abgebrochen'); return; }
       if (pick.ids.length) {
         if (e.key === 'Escape') { e.preventDefault(); clearPick(); return; }
         if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); deletePick(true); return; }
@@ -1460,6 +1623,7 @@
     var w = app.querySelector('.helpwrap');
     if (w.firstChild) { w.innerHTML = ''; return; }
     w.innerHTML = '<div class="helppanel">' +
+      '<div><span class="glyph">\u25CF</span><b>ziehen</b> \u2014 den punkt links anfassen und die zeile verschieben, alles darunter kommt mit. die linie zeigt, wo sie landet; ziehst du nach rechts, wird sie zum unterpunkt. sind mehrere zeilen ausgewählt, wandern alle zusammen. escape bricht ab.</div>' +
       '<div><span class="glyph">\u21E7</span><b>mehrere zeilen</b> \u2014 in eine zeile klicken, dann mit <b>shift + klick</b> auf eine andere: alles dazwischen ist ausgewählt. auch mit <b>shift + pfeiltasten</b>. dann <b>strg+c</b>, <b>strg+x</b> oder entf \u2014 oder die knöpfe, die unten erscheinen.</div>' +
       '<div><span class="glyph">\u2318</span><b>kürzel</b> \u2014 alt+↑/↓ verschiebt die zeile, strg+enter macht sie zum to-do, tab und shift+tab rücken ein und aus, strg+k sucht, shift+enter macht einen umbruch in der zeile.</div>' +
       '<div><span class="glyph">/</span><b>slash-menü</b> \u2014 tippe <b>/</b> mitten im schreiben. es klappt ein menü auf: to-do, einrücken, verschieben, löschen. weiterschreiben filtert, tippen wählt aus.</div>' +
