@@ -243,6 +243,19 @@
   }
   .badge:hover { background: var(--accent); color: var(--raised); }
 
+  .lnk {
+    color: var(--accent); text-decoration: underline;
+    text-underline-offset: 2px; cursor: pointer;
+  }
+  .lnk:hover { background: var(--accent-soft); border-radius: 3px; }
+  .shot { margin: 3px 0 7px 52px; }
+  .shot img {
+    display: block; max-width: 100%; max-height: 320px;
+    border-radius: 10px; border: 1px solid var(--rule); cursor: zoom-in;
+    background: var(--rule);
+  }
+  .shot.bad { font-family: var(--font-util); font-size: 10px; color: var(--ink-faint); }
+
   .empty { padding: 12px 0 4px; }
   .empty button {
     width: 100%; text-align: left; font-size: 14.5px;
@@ -676,16 +689,19 @@
       : '<span class="bl"></span>';
     var badge = '';
     if (n.collapsed && kids) badge = '<button class="badge" data-k="open">' + plural(count(id)) + ' versteckt</button>';
+    var shot = firstImage(n.text);
     var body = (!n.collapsed && kids)
       ? '<div class="kids' + (flashOpen === id ? ' reveal' : '') + '">' + n.children.map(branch).join('') + '</div>'
       : '';
     return '<div class="' + cls + '" data-id="' + id + '">' +
         '<div class="row">' +
           '<button class="ar" data-k="fold" title="zuklappen">' + G.fold + '</button>' +
-          '<button class="knob" data-k="knob" title="hineingehen">' + knob + '</button>' +
-          '<div class="tx" contenteditable="plaintext-only" spellcheck="false">' + esc(n.text) + '</div>' +
+          '<button class="knob" data-k="knob" title="hineingehen oder ziehen">' + knob + '</button>' +
+          '<div class="tx" contenteditable="plaintext-only" spellcheck="false">' + linkify(n.text) + '</div>' +
           badge +
-        '</div>' + body +
+        '</div>' +
+        (shot ? '<div class="shot"><img src="' + attr(shot) + '" alt="" loading="lazy" data-img="' + attr(shot) + '"></div>' : '') +
+        body +
       '</div>';
   }
 
@@ -850,28 +866,42 @@
     while (pos < kids.length && (N(kids[pos]).day || '') > day) pos++;
     return addNode(dayLabel(day), arc, pos, { day: day });
   }
+  function openParentAbove(id) {
+    var p = N(id) && N(id).parent;
+    while (p && p !== S.zoom) {
+      var a = N(p);
+      if (a.todo && !a.done) return true;
+      p = a.parent;
+    }
+    return false;
+  }
   function archiveDone() {
-    var ids = [];
-    eachInView(function (n) { if (n.todo && n.done) ids.push(n.id); });
+    var all = [];
+    eachInView(function (n) { if (n.todo && n.done) all.push(n.id); });
+    var held = all.filter(openParentAbove);
+    var ids = all.filter(function (id) { return !openParentAbove(id); });
     ids = ids.filter(function (id) {
       return !ids.some(function (o) { return o !== id && isInside(N(id).parent, o); });
     });
-    if (!ids.length) { toast('hier ist nichts erledigt'); return; }
+    if (!ids.length) {
+      toast(held.length
+        ? 'nichts zu verschieben \u2014 alles erledigte hängt unter offenen punkten'
+        : 'hier ist nichts erledigt');
+      return;
+    }
     var withKids = ids.filter(function (id) { return N(id).children.length; }).length;
     var where = S.zoom ? 'von dieser seite' : 'aus allen seiten';
     ask(ids.length + (ids.length === 1 ? ' erledigte zeile ' : ' erledigte zeilen ') + where +
         ' nach \u201eerledigt\u201c verschieben?' +
-        (withKids ? ' bei ' + withKids + ' davon kommen die unterzeilen mit.' : ''),
+        (withKids ? ' bei ' + withKids + ' davon kommen die unterzeilen mit.' : '') +
+        (held.length ? ' ' + held.length + ' bleibt hier, weil der punkt darüber noch offen ist.' : ''),
       'verschieben', function () {
         snap();
-        var days = {};
         ids.forEach(function (id) {
-          var n = N(id), day = n.doneAt || ymd();
-          var target = dayPage(day);
+          var n = N(id), target = dayPage(n.doneAt || ymd());
           detach(n);
           n.parent = target;
           N(target).children.push(id);
-          days[day] = 1;
         });
         var arc = getArchive();
         if (S.zoom && !S.nodes[S.zoom]) S.zoom = null;
@@ -1030,29 +1060,74 @@
   }
 
   /* ---------------- kopieren & einfügen ---------------- */
-  function markOf(n) { return n.todo ? (n.done ? '- [x] ' : '- [ ] ') : '- '; }
-  function branchText(id) {
-    var out = [];
-    (function w(ids, l) {
-      ids.forEach(function (i) {
-        var n = N(i), pad = new Array(l + 1).join('  ');
-        out.push(pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  '));
-        w(n.children, l + 1);
-      });
-    })([id], 0);
-    return out.join('\n');
+  var BULLETS = ['\u2022', '\u25E6', '\u25AA'];
+  function tabs(n) { return new Array(n + 1).join('\t'); }
+  function lineText(n, lvl) {
+    var b = BULLETS[Math.min(lvl, BULLETS.length - 1)];
+    var box = n.todo ? (n.done ? '\u2611 ' : '\u2610 ') : '';
+    return tabs(lvl) + b + ' ' + box + n.text.replace(/\n/g, '\n' + tabs(lvl + 1));
   }
+  function asPlain(list) { return list.map(function (it) { return lineText(it.n, it.lvl); }).join('\n'); }
+  function asHtml(list) {
+    var out = '', prev = -1, open = 0;
+    list.forEach(function (it) {
+      if (prev === -1) { out += '<ul>'; open++; }
+      else if (it.lvl > prev) { out += '<ul>'; open++; }
+      else {
+        out += '</li>';
+        for (var i = it.lvl; i < prev; i++) { out += '</ul></li>'; open--; }
+      }
+      var box = it.n.todo ? (it.n.done ? '\u2611 ' : '\u2610 ') : '';
+      out += '<li>' + box + esc(it.n.text).replace(/\n/g, '<br>');
+      prev = it.lvl;
+    });
+    if (prev > -1) out += '</li>';
+    while (open-- > 0) out += '</ul>';
+    return out;
+  }
+
+  function listFromBranch(id) {
+    var out = [];
+    (function w(ids, l) { ids.forEach(function (i) { out.push({ lvl: l, n: N(i) }); w(N(i).children, l + 1); }); })([id], 0);
+    return out;
+  }
+  function listFromPick() {
+    var order = rows().map(idOf).filter(function (id) { return pick.ids.indexOf(id) > -1; });
+    if (!order.length) return [];
+    var dep = {}, min = 99;
+    order.forEach(function (id) { dep[id] = depthOf(id); if (dep[id] < min) min = dep[id]; });
+    return order.map(function (id) { return { lvl: dep[id] - min, n: N(id) }; });
+  }
+  function listFromAll() {
+    var out = [];
+    S.roots.forEach(function (rid) {
+      out.push({ lvl: 0, n: N(rid) });
+      (function w(ids, l) { ids.forEach(function (i) { out.push({ lvl: l, n: N(i) }); w(N(i).children, l + 1); }); })(N(rid).children, 1);
+    });
+    return out;
+  }
+
   function toClip(text, msg) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { toast(msg); }, function () { toast('kopieren war nicht erlaubt'); });
     } else toast('kopieren geht hier nicht');
   }
+  function copyList(list, msg) {
+    if (!list.length) return;
+    var plain = asPlain(list), html = asHtml(list);
+    if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      navigator.clipboard.write([new window.ClipboardItem({
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' })
+      })]).then(function () { toast(msg); }, function () { toClip(plain, msg); });
+    } else toClip(plain, msg);
+  }
   function copyBranch(id) {
-    var n = N(id); if (!n) return;
-    toClip(branchText(id), (1 + count(id)) + ' zeilen kopiert');
+    if (!N(id)) return;
+    copyList(listFromBranch(id), (1 + count(id)) + ' zeilen kopiert');
   }
 
-  /* eingefügten text in zeilen zerlegen: einrückung und -/[ ] werden gelesen */
+  /* eingefügten text in zeilen zerlegen: einrückung, punkte und kästchen werden gelesen */
   function parsePaste(txt) {
     var lines = txt.replace(/\r/g, '').split('\n');
     var out = [];
@@ -1061,8 +1136,10 @@
       var lvl = Math.floor(lead.replace(/\t/g, '  ').length / 2);
       var t = raw.slice(lead.length);
       var todo = false, done = false;
-      var bullet = t.match(/^[-*\u2022]\s+/); if (bullet) t = t.slice(bullet[0].length);
-      var box = t.match(/^\[([ xX]?)\]\s*/); if (box) { todo = true; done = /x/i.test(box[1]); t = t.slice(box[0].length); }
+      var bullet = t.match(/^[-*\u2022\u25E6\u25AA\u25CF\u2023]\s+/);
+      if (bullet) t = t.slice(bullet[0].length);
+      var box = t.match(/^(\[[ xX]?\]|[\u2610\u2611\u2612\u2705])\s*/);
+      if (box) { todo = true; done = /[xX\u2611\u2612\u2705]/.test(box[1]); t = t.slice(box[0].length); }
       if (!t.trim() && !out.length) return;
       out.push({ lvl: lvl, text: t.trim(), todo: todo, done: done });
     });
@@ -1121,16 +1198,6 @@
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     applyPick();
   }
-  function pickText() {
-    var order = rows().map(idOf).filter(function (id) { return pick.ids.indexOf(id) > -1; });
-    if (!order.length) return '';
-    var dep = {}, min = 99;
-    order.forEach(function (id) { dep[id] = depthOf(id); if (dep[id] < min) min = dep[id]; });
-    return order.map(function (id) {
-      var n = N(id), pad = new Array(dep[id] - min + 1).join('  ');
-      return pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  ');
-    }).join('\n');
-  }
   function topMost(ids) {
     return ids.filter(function (id) {
       return !ids.some(function (o) { return o !== id && isInside(N(id).parent, o); });
@@ -1161,8 +1228,8 @@
       bar.addEventListener('click', function (e) {
         var b = e.target.closest('[data-p]'); if (!b) return;
         var k = b.dataset.p, n = pick.ids.length;
-        if (k === 'copy') toClip(pickText(), n + ' zeilen kopiert');
-        if (k === 'cut') { toClip(pickText(), n + ' zeilen ausgeschnitten'); deletePick(false); }
+        if (k === 'copy') copyList(listFromPick(), n + ' zeilen kopiert');
+        if (k === 'cut') { copyList(listFromPick(), n + ' zeilen ausgeschnitten'); deletePick(false); }
         if (k === 'del') deletePick(true);
         if (k === 'none') clearPick();
       });
@@ -1184,6 +1251,36 @@
     var i = order.indexOf(last) + dir;
     if (i < 0 || i >= order.length) return;
     pickRange(pick.anchor || pick.ids[0], order[i]);
+  }
+
+  /* ---------------- links und bilder ---------------- */
+  var URL_RE = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/g;
+  function attr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+  function href(u) { return /^https?:/i.test(u) ? u : 'https://' + u; }
+  function trimUrl(u) { return u.replace(/[.,;:!?)\]}]+$/, ''); }
+  function linkify(t) {
+    var out = '', last = 0, m;
+    URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(t)) !== null) {
+      var raw = m[0], url = trimUrl(raw), trail = raw.slice(url.length);
+      out += esc(t.slice(last, m.index));
+      out += '<span class="lnk" data-u="' + attr(href(url)) + '">' + esc(url) + '</span>' + esc(trail);
+      last = m.index + raw.length;
+    }
+    return out + esc(t.slice(last));
+  }
+  function firstImage(t) {
+    var m; URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(t)) !== null) {
+      var u = trimUrl(m[0]);
+      if (/\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(u)) return href(u);
+    }
+    return null;
+  }
+  function relink(el) {
+    var n = N(idOf(el));
+    if (!n) return;
+    el.innerHTML = linkify(n.text);
   }
 
   /* ---------------- ziehen und ablegen ---------------- */
@@ -1358,7 +1455,14 @@
     });
     sheet.addEventListener('focusin', function (e) {
       var el = e.target.closest('.tx');
-      if (el && !pick.ids.length) pick.anchor = idOf(el);
+      if (!el) return;
+      var n = N(idOf(el));
+      if (n && el.querySelector('.lnk')) el.textContent = n.text;
+      if (!pick.ids.length) pick.anchor = idOf(el);
+    });
+    sheet.addEventListener('focusout', function (e) {
+      var el = e.target.closest('.tx');
+      if (el) relink(el);
     });
 
     sheet.addEventListener('paste', function (e) {
@@ -1463,6 +1567,17 @@
 
     sheet.addEventListener('click', function (e) {
       if (suppressClick) { suppressClick = false; return; }
+      var im = e.target.closest('[data-img]');
+      if (im) { window.open(im.dataset.img, '_blank', 'noopener'); return; }
+      var ln = e.target.closest('.lnk');
+      if (ln) {
+        var editing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tx') === ln.closest('.tx');
+        if (!editing || e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          window.open(ln.dataset.u, '_blank', 'noopener');
+          return;
+        }
+      }
       if (e.target.closest('[data-empty]')) {
         snap();
         var nid = addNode('', S.zoom, 0);
@@ -1553,13 +1668,17 @@
     document.addEventListener('copy', function (e) {
       if (!pick.ids.length || !e.clipboardData) return;
       e.preventDefault();
-      e.clipboardData.setData('text/plain', pickText());
+      var list = listFromPick();
+      e.clipboardData.setData('text/plain', asPlain(list));
+      e.clipboardData.setData('text/html', asHtml(list));
       toast(pick.ids.length + ' zeilen kopiert');
     });
     document.addEventListener('cut', function (e) {
       if (!pick.ids.length || !e.clipboardData) return;
       e.preventDefault();
-      e.clipboardData.setData('text/plain', pickText());
+      var list = listFromPick();
+      e.clipboardData.setData('text/plain', asPlain(list));
+      e.clipboardData.setData('text/html', asHtml(list));
       deletePick(false);
     });
 
@@ -1623,6 +1742,7 @@
     var w = app.querySelector('.helpwrap');
     if (w.firstChild) { w.innerHTML = ''; return; }
     w.innerHTML = '<div class="helppanel">' +
+      '<div><span class="glyph">\u2197</span><b>links</b> \u2014 eine web-adresse in eine zeile schreiben reicht, sie wird automatisch anklickbar und öffnet sich in einem neuen tab. beim bearbeiten der zeile siehst du wieder den reinen text. endet die adresse auf .jpg, .png oder .gif, erscheint das bild direkt darunter.</div>' +
       '<div><span class="glyph">\u25CF</span><b>ziehen</b> \u2014 den punkt links anfassen und die zeile verschieben, alles darunter kommt mit. die linie zeigt, wo sie landet; ziehst du nach rechts, wird sie zum unterpunkt. sind mehrere zeilen ausgewählt, wandern alle zusammen. escape bricht ab.</div>' +
       '<div><span class="glyph">\u21E7</span><b>mehrere zeilen</b> \u2014 in eine zeile klicken, dann mit <b>shift + klick</b> auf eine andere: alles dazwischen ist ausgewählt. auch mit <b>shift + pfeiltasten</b>. dann <b>strg+c</b>, <b>strg+x</b> oder entf \u2014 oder die knöpfe, die unten erscheinen.</div>' +
       '<div><span class="glyph">\u2318</span><b>kürzel</b> \u2014 alt+↑/↓ verschiebt die zeile, strg+enter macht sie zum to-do, tab und shift+tab rücken ein und aus, strg+k sucht, shift+enter macht einen umbruch in der zeile.</div>' +
@@ -1683,26 +1803,8 @@
     askDelete(idOf(el));
   }
 
-  function asText() {
-    var out = [];
-    S.roots.forEach(function (rid) {
-      out.push('# ' + cut(N(rid).text, 200));
-      (function walk(ids, lvl) {
-        ids.forEach(function (id) {
-          var n = N(id), pad = new Array(lvl + 1).join('  ');
-          out.push(pad + markOf(n) + n.text.replace(/\n/g, '\n' + pad + '  '));
-          walk(n.children, lvl + 1);
-        });
-      })(N(rid).children, 0);
-      out.push('');
-    });
-    return out.join('\n');
-  }
   function copyText() {
-    var t = asText();
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(t).then(function () { toast('alle seiten als text kopiert'); }, function () { toast('kopieren war nicht erlaubt'); });
-    } else toast('kopieren geht hier nicht');
+    copyList(listFromAll(), 'alle seiten kopiert');
   }
   function dlJson() {
     try {
